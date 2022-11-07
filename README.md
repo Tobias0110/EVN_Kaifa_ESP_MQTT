@@ -7,3 +7,6 @@ The ESP8266 recives the MBus data from the smart meter via the UART interface. A
 Contact me on oe3tec@egimoto.com if you want to buy the interface PCB.
 
 The ESP microcontroller syncs to the databursts of the smartmeter so no packet is lost. After receiving a package it is decrypted and the measurment values are extracted. This data is then send to an MQTT broker. All relevant parameters can be configured via the serial console at startup and will be saved to the EEPROM.
+
+## Development status
+Very chaotic code but works in parts. The full thing how it is presentet here is untested.
