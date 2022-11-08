@@ -8,7 +8,7 @@ Please consider buying the PCB from me to support my work. You can contact me vi
 
 The ESP microcontroller syncs to the databursts of the smartmeter so no packet is lost. After receiving a package it is decrypted and the measurment values are extracted. This data is then send to an MQTT broker. All relevant parameters can be configured via the serial console at startup and will be saved to the EEPROM.
 
-![complete assambly](https://github.com/Tobias0110/EVN_Kaifa_ESP_MQTT/tree/main/device_pictures/interface_with_ESP.jpg)
+![complete assambly](https://github.com/Tobias0110/EVN_Kaifa_ESP_MQTT/tree/main/device_pictures/interface_with_ESP_small.jpg)
 
 ## Configuration
 1. Connect to the ESP board via USB and open a serial terminal. Make sure the ESP is not connected to the interface board.
