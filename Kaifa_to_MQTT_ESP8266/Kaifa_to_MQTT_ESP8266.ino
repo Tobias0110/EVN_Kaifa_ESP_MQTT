@@ -25,36 +25,13 @@ uint8_t for_tx[282];
 char input[101];
 
 // for decryption
-uint8_t generated_iv[12];
+uint8_t key[16];
+uint8_t authdata[1] = {0x30}; //aad (is 0x30 wen there is no auth key)
+uint8_t iv[12]; //for clients system title (8 byte) + frame counter (4 byte)
+size_t authsize = 1;
+size_t ivsize = 12;
 // contains encrypted data at the beginning and decrypted data after decryption
 byte buffer[254];
-
-struct crypto_settings
-{
-    const char *name;
-    uint8_t key[16];
-    uint8_t authdata[1]; //aad (is 0x30 wen there is no auth key)
-    uint8_t iv[12]; //for clients system title (8 byte) + frame counter (4 byte)
-    uint8_t tag[16]; //not needed. seems to be an output when encrypting
-    size_t authsize;
-    size_t tagsize;
-    size_t ivsize;
-};
-
-static crypto_settings AESGCM_settings PROGMEM = {   //Dont forget to change the Values here
-    .name        = "AES-128 GCM",
-    .key         = {0x36, 0xc6, 0x66, 0x39, 0xe4, 0x8a, 0x8c, 0xa4,
-                    0xd6, 0xbc, 0x8b, 0x28, 0x2a, 0x79, 0x3b, 0xbb},
-    .authdata    = {0x30},
-    .iv          = {0x4b, 0x46, 0x4d, 0x67, 0x50, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x23},
-    .tag         = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    .authsize    = 1,
-    .tagsize     = 16,
-    .ivsize      = 12
-};
-
-crypto_settings mem;
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -66,31 +43,27 @@ void create_iv()
   for(uint8_t i = 0; i < 8; i++)
   {
     //System Title
-    generated_iv[i] = for_tx[i+11];
+    iv[i] = for_tx[i+11];
   }
   for(uint8_t i = 0; i < 4; i++)
   {
     //frame counter
-    generated_iv[i+8] = for_tx[i+22];
+    iv[i+8] = for_tx[i+22];
   }
 }
 
-void decrypt(AuthenticatedCipher *cipher, struct crypto_settings *test, size_t datasize){
-    bool ok;
-
-    memcpy_P(&mem, test, sizeof(crypto_settings));
-    test = &mem;
+void decrypt(AuthenticatedCipher *cipher, size_t datasize){
     size_t posn, len;
     uint8_t tag[16];
-    //crypto_feed_watchdog();
+    
     cipher->clear();
-    cipher->setKey(test->key, cipher->keySize());
-    cipher->setIV(test->iv, test->ivsize);
-    for (posn = 0; posn < test->authsize; posn += datasize) {
-        len = test->authsize - posn;
+    cipher->setKey(key, cipher->keySize());
+    cipher->setIV(iv, ivsize);
+    for (posn = 0; posn < authsize; posn += datasize) {
+        len = authsize - posn;
         if (len > datasize)
             len = datasize;
-        cipher->addAuthData(test->authdata + posn, len);
+        cipher->addAuthData(authdata + posn, len);
     }
 
     for (posn = 0; posn < datasize; posn += datasize) {
@@ -100,9 +73,9 @@ void decrypt(AuthenticatedCipher *cipher, struct crypto_settings *test, size_t d
         cipher->decrypt((uint8_t*)buffer + posn, buffer + posn, len);
     }
 
-    Serial.print("\nOutput: ");
+    /*Serial.print("\nOutput: ");
     for(uint16_t i=0; i<254;i++) Serial.printf("%c",(char)buffer[i]);
-    Serial.println();
+    Serial.println();*/
 
 }
 
@@ -128,6 +101,13 @@ void read_input(uint8_t max)
    while((one[0] != 0x0d) && (cnt < max));
    if (cnt >= max) input[cnt] = 0;
    else input[cnt-1] = 0;
+}
+
+long stringToLong(String s)
+{
+    char arr[33];
+    s.toCharArray(arr, sizeof(arr));
+    return atol(arr);
 }
 
 void load_settings()
@@ -184,6 +164,7 @@ void load_settings()
       }
       Serial.println(input);
       strcpy(clientId, input);
+      
       Serial.println("MQTT path:");
       for(uint16_t i = 33+64+21+6+21+21+21; i < 33+64+21+6+21+21+21+101; i++)
       {
@@ -191,6 +172,26 @@ void load_settings()
       }
       Serial.println(input);
       strcpy(mqtt_path, input);
+      
+      Serial.println("EVN key:");
+      for(uint16_t i = 33+64+21+6+21+21+21+101; i < 33+64+21+6+21+21+21+101+33; i++)
+      {
+        input[i-33-64-21-6-21-21-21-101] = EEPROM[i];
+      }
+      Serial.println(input);
+      //convert string to array of uint8_t
+      char key_buffer [3];
+      uint8_t key_pos = 0;
+      for(uint8_t i = 0; i < 32; i=i+2)
+      {
+      key_buffer[0] = input[i];
+      key_buffer[1] = input[i+1];
+      key_buffer[2] = 0;
+      key[key_pos] = (uint8_t)strtol(key_buffer, NULL, 16);
+      key_pos++;
+      }
+      //print key from int (removes leading zerros from bytes)
+      //for(uint8_t i = 0; i < 16; i++) Serial.print(key[i], HEX);
 }
 
 void setup() {
@@ -211,6 +212,7 @@ void setup() {
     Serial.println("6 - Set MQTT password");
     Serial.println("7 - Set MQTT client ID");
     Serial.println("8 - Set MQTT path");
+    Serial.println("9 - Set EVN Key");
 
     Serial.setTimeout(30000);
     while(1)
@@ -318,6 +320,18 @@ void setup() {
       }
       EEPROM.commit();
       break;
+
+      case '9':
+      Serial.println("Enter EVN key in HEX ( 32 symbols). Finish with ENTER.");
+      read_input(32);
+      Serial.println("\nSaved:");
+      Serial.println(input);
+      for(uint16_t i = 33+64+21+6+21+21+21+101; i < 33+64+21+6+21+21+21+101+33; i++)
+      {
+        EEPROM[i] = input[i-33-64-21-6-21-21-21-101];
+      }
+      EEPROM.commit();
+      break;
     }
     }
     
@@ -335,6 +349,7 @@ void setup() {
 
   // Connect to WIFI
   Serial.print("Connecting to WiFi");
+  WiFi.hostname("EVN-Stromzaehler");
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
@@ -351,13 +366,14 @@ void setup() {
 
   //Decryption setup
   gcm = new GCM<AES128>();
-  gcm->setKey(AESGCM_settings.key, 16);
+  gcm->setKey(key, 16);
 }
 
 void loop() {
 
   uint32_t wirkenergie_p, wirkenergie_n, leistung_p, leistung_n;
   float u1, u2, u3, i1, i2, i3, phi;
+  char mqtt_out[10], mqtt_full_path[110];
 
   //Hardbeat
   digitalWrite(D0, HIGH);
@@ -376,11 +392,13 @@ void loop() {
         }
    }
     //Send binnary over MQTT
-    client.publish(mqtt_path, for_tx, 282, false);
+    strcpy(mqtt_full_path, mqtt_path);
+    strcat(mqtt_full_path, "/raw");
+    client.publish(mqtt_full_path, for_tx, 282, false);
 
-    //decrypt
-    create_iv();
-  gcm->setIV(generated_iv, 12);
+  //decrypt
+  create_iv();
+  gcm->setIV(iv, 12);
   memset(buffer, (int)'\0', sizeof(buffer));
 
   for(uint16_t i = 0; i < 254; i++)
@@ -388,31 +406,85 @@ void loop() {
     buffer[i] = for_tx[i+26];
   }
   
-  decrypt(gcm,&AESGCM_settings,254);
-  delete gcm;
+  decrypt(gcm,254);
+  //delete gcm;
 
   wirkenergie_p = buffer[43]<<24 | buffer[44]<<16 | buffer[45]<<8 | buffer[46];
   Serial.println(wirkenergie_p);
+  strcpy(mqtt_full_path, mqtt_path);
+  strcat(mqtt_full_path, "/w_p");
+  sprintf(mqtt_out, "%d", wirkenergie_p);
+  client.publish(mqtt_full_path, mqtt_out, false);
+  
   wirkenergie_n = buffer[62]<<24 | buffer[63]<<16 | buffer[64]<<8 | buffer[65];
   Serial.println(wirkenergie_n);
+  strcpy(mqtt_full_path, mqtt_path);
+  strcat(mqtt_full_path, "/w_n");
+  sprintf(mqtt_out, "%d", wirkenergie_n);
+  client.publish(mqtt_full_path, mqtt_out, false);
+  
   leistung_p = buffer[81]<<24 | buffer[82]<<16 | buffer[83]<<8 | buffer[84];
   Serial.println(leistung_p);
+  strcpy(mqtt_full_path, mqtt_path);
+  strcat(mqtt_full_path, "/p_p");
+  sprintf(mqtt_out, "%d", leistung_p);
+  client.publish(mqtt_full_path, mqtt_out, false);
+  
   leistung_n = buffer[100]<<24 | buffer[101]<<16 | buffer[102]<<8 | buffer[103];
   Serial.println(leistung_n);
+  strcpy(mqtt_full_path, mqtt_path);
+  strcat(mqtt_full_path, "/p_n");
+  sprintf(mqtt_out, "%d", leistung_n);
+  client.publish(mqtt_full_path, mqtt_out, false);
+  
   u1 = ((float)((uint16_t) buffer[119]<<8 | buffer[120])) / 10;
   Serial.println(u1);
+  strcpy(mqtt_full_path, mqtt_path);
+  strcat(mqtt_full_path, "/u1");
+  sprintf(mqtt_out, "%f", u1);
+  client.publish(mqtt_full_path, mqtt_out, false);
+  
   u2 = ((float)((uint16_t) buffer[136]<<8 | buffer[137])) / 10;
   Serial.println(u2);
+  strcpy(mqtt_full_path, mqtt_path);
+  strcat(mqtt_full_path, "/u2");
+  sprintf(mqtt_out, "%f", u2);
+  client.publish(mqtt_full_path, mqtt_out, false);
+  
   u3 = ((float)((uint16_t) buffer[153]<<8 | buffer[154])) / 10;
   Serial.println(u3);
+  strcpy(mqtt_full_path, mqtt_path);
+  strcat(mqtt_full_path, "/u3");
+  sprintf(mqtt_out, "%f", u3);
+  client.publish(mqtt_full_path, mqtt_out, false);
+  
   i1 = ((float)((int16_t) buffer[170]<<8 | buffer[171])) / 100;
   Serial.println(i1);
+  strcpy(mqtt_full_path, mqtt_path);
+  strcat(mqtt_full_path, "/i1");
+  sprintf(mqtt_out, "%f", i1);
+  client.publish(mqtt_full_path, mqtt_out, false);
+  
   i2 = ((float)((int16_t) buffer[187]<<8 | buffer[188])) / 100;
   Serial.println(i2);
+  strcpy(mqtt_full_path, mqtt_path);
+  strcat(mqtt_full_path, "/i2");
+  sprintf(mqtt_out, "%f", i2);
+  client.publish(mqtt_full_path, mqtt_out, false);
+  
   i3 = ((float)((int16_t) buffer[204]<<8 | buffer[205])) / 100;
   Serial.println(i3);
+  strcpy(mqtt_full_path, mqtt_path);
+  strcat(mqtt_full_path, "/i3");
+  sprintf(mqtt_out, "%f", i3);
+  client.publish(mqtt_full_path, mqtt_out, false);
+  
   phi = ((float)((int16_t) buffer[221]<<8 | buffer[222])) / 1000;
   Serial.println(phi);
+  strcpy(mqtt_full_path, mqtt_path);
+  strcat(mqtt_full_path, "/phi");
+  sprintf(mqtt_out, "%f", phi);
+  client.publish(mqtt_full_path, mqtt_out, false);
   }
   else
   {
