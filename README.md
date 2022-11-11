@@ -37,3 +37,12 @@ To boot the ESP with your settings, reset the microcontroller.
 ## Development status
 Very chaotic code but it works in this state.
 I need to write a installation tutorial.
+
+We found that the smart meter sends two packets that must be decrypted seperatly. The second packet may contain more measurement data depending on your energy supplier. The standard EVN smartmeters send the Zählernummer in the second packet. This will be implemented in the next release.
+
+### Planned
+* Output the clock of the smart meter in UTC
+* Output the Zählernummer
+* Implement the M-Bus library a firend of mine is currently developing
+* Expand the software to support all M-Bus smart meters in Austria
+* MQTT SSL
