@@ -169,6 +169,8 @@ template<typename>
 class ErrorType;
 class Buffer;
 template<int>
+class LocalBuffer;
+class OwnedBuffer;
 
 /**
 * Reimplement a few useful standard classes in the absence of the STL
@@ -341,6 +343,7 @@ public:
     Buffer(u8* p, u32 l) : ptr(p), byteCount(l) {}
 
     Buffer(const OwnedBuffer&) = delete;
+    Buffer(OwnedBuffer&&) = delete;
 
     template<typename T>
     void printHex(T& stream) const {
@@ -389,6 +392,7 @@ public:
         }
     }
 
+    static OwnedBuffer allocate(u32 size);
     static ErrorOr<OwnedBuffer> fromHexString(const char* hexString);
 
     auto length() const { return byteCount; }
@@ -428,6 +432,74 @@ protected:
     u8* ptr;
     u32 byteCount;
 };
+
+template<int Length>
+class LocalBuffer : public Buffer {
+public:
+    LocalBuffer() : Buffer(storage, Length) {}
+
+private:
+    u8 storage[Length];
+};
+
+class OwnedBuffer : public Buffer {
+public:
+
+    OwnedBuffer() : Buffer(nullptr, -1) {}
+    OwnedBuffer(u8* p, u32 l) : Buffer(p, l) {}
+    OwnedBuffer(const OwnedBuffer&) = delete;
+    OwnedBuffer(OwnedBuffer&& other) : Buffer(other.ptr, other.byteCount) {
+        other.ptr = nullptr;
+    }
+
+    virtual ~OwnedBuffer() {
+        free();
+    }
+
+    void free() {
+        if (ptr) {
+            delete[] ptr;
+            ptr = nullptr;
+            byteCount = -1;
+        }
+    }
+
+    OwnedBuffer& operator=(OwnedBuffer&& other) {
+        free();
+        ptr = other.ptr;
+        byteCount = other.byteCount;
+        other.ptr = nullptr;
+        other.byteCount = -1;
+        return *this;
+    }
+};
+
+
+OwnedBuffer Buffer::allocate(u32 size) {
+    return { new u8[size], size };
+}
+
+ErrorOr<OwnedBuffer> Buffer::fromHexString(const char* hexString) {
+    u32 nibbleCount = 0;
+
+    for (auto it = hexString; *it; it++) {
+        if ((*it >= '0' && *it <= '9') || (*it >= 'a' && *it <= 'f') || (*it >= 'A' && *it <= 'F')) {
+            nibbleCount++;
+        }
+    }
+
+    if (nibbleCount % 2 != 0) {
+        return Error{ "uneven number of nibbles" };
+    }
+
+    auto bufferSize = nibbleCount / 2;
+    auto bufferPointer = new u8[bufferSize];
+    OwnedBuffer buffer{ bufferPointer, bufferSize };
+    buffer.parseHex(hexString, nibbleCount);
+
+    return { NoStl::move(buffer) };
+}
+
 char ssid[33], password[64], MQTT_BROKER[21], mqtt_user[21], mqtt_password[21], clientId[21], mqtt_path[101];
 int MQTT_PORT = 1883;
 
