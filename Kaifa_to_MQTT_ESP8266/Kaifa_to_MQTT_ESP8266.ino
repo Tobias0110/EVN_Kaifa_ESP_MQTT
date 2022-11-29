@@ -103,6 +103,69 @@ namespace NoStl {
         return static_cast<T&&>(x);
     }
 
+
+    template<typename> class Optional;
+}
+
+/**
+* Reimplement a few useful standard classes in the absence of the STL
+**/
+namespace NoStl {
+    template<typename T>
+    class Optional {
+    public:
+        Optional() : data{ .placeholder= 0 }, valueFlag{ false } {}
+
+        Optional(const Optional&) = delete;
+        Optional(Optional&& other) : valueFlag{ other.valueFlag } {
+            if (valueFlag) {
+                new(&data.value) T(move(other.data.value));
+            }
+        }
+
+        template<typename ... TArgs>
+        Optional(TArgs&& ... args) : data{ .value{ NoStl::forward<TArgs>(args)... } }, valueFlag{ true } {}
+
+        ~Optional() {
+            if (valueFlag) {
+                data.value.~T();
+            }
+        }
+
+        bool hasValue() const { return valueFlag; }
+        operator bool() const { return valueFlag; }
+
+        T& value() { assert(valueFlag); return data.value; }
+        const T& value() const { assert(valueFlag); return data.value; }
+
+        template<typename U>
+        Optional& operator=(U&& val) {
+            if (valueFlag) {
+                data.value = forward<U>(val);
+            }
+            else {
+                new(&data.value) T(forward<U>(val));
+                valueFlag = true;
+            }
+            return *this;
+        }
+
+    private:
+        union Storage {
+            char placeholder;
+            T value;
+
+            ~Storage();
+        };
+        
+        Storage data;
+        bool valueFlag{ false };
+    };
+
+    // Implement the union destructor out of line to prevent the Arduino IDE from creating
+    // bogus prototypes all over the file
+    template<typename T>
+    Optional<T>::Storage::~Storage() {}
 }
 
 char ssid[33], password[64], MQTT_BROKER[21], mqtt_user[21], mqtt_password[21], clientId[21], mqtt_path[101];
