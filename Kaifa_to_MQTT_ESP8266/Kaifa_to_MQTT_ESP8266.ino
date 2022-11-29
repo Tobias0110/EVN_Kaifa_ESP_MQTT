@@ -29,6 +29,10 @@
 * - https://github.com/Gurux/Gurux.DLMS.Python/
 **/
 
+#ifdef _MSC_VER
+#define _CRT_SECURE_NO_WARNINGS
+#endif
+
 #ifndef ARDUINO
 #include <iostream>
 #include <string>
