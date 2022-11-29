@@ -69,6 +69,42 @@ using i16 = int16_t;
 using i32 = int32_t;
 using i64 = int64_t;
 
+
+namespace NoStl {
+
+    template<typename>
+    constexpr bool isLValueReference = false;
+
+    template<typename T>
+    constexpr bool isLValueReference<T&> = true;
+
+    template<typename T>
+    struct removeReference { using type = T; };
+
+    template<typename T>
+    struct removeReference<T&> { using type = T; };
+
+    template<typename T>
+    struct removeReference<T&&> { using type = T; };
+
+    template<typename T>
+    constexpr typename removeReference<T>::type&& move(T&& arg) {
+        return static_cast<typename removeReference<T>::type&&>(arg);
+    }
+
+    template<typename T>
+    constexpr T&& forward(typename removeReference<T>::type& x) noexcept { // forward an lvalue as either an lvalue or an rvalue
+        return static_cast<T&&>(x);
+    }
+
+    template<typename T>
+    constexpr T&& forward(typename removeReference<T>::type&& x) noexcept { // forward an rvalue as an rvalue
+        static_assert(!isLValueReference<T>, "bad forward call");
+        return static_cast<T&&>(x);
+    }
+
+}
+
 char ssid[33], password[64], MQTT_BROKER[21], mqtt_user[21], mqtt_password[21], clientId[21], mqtt_path[101];
 int MQTT_PORT = 1883;
 
