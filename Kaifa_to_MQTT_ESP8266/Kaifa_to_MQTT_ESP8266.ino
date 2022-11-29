@@ -175,6 +175,7 @@ class BufferReaderBase;
 class BufferReader;
 template<typename T>
 class SerialBufferReader;
+class BufferPrinter;
 
 /**
 * Reimplement a few useful standard classes in the absence of the STL
@@ -712,4 +713,146 @@ private:
     Buffer buffer;
     u32 readIndex{ 0 };
     u32 writeIndex{ 0 };
+};
+
+class BufferPrinter {
+public:
+    explicit BufferPrinter(Buffer& b) : buffer(b), cursor{ b.begin() } {}
+
+    void clear() {
+        cursor = buffer.begin();
+    }
+
+    BufferPrinter& print(i64 x, u8 minLeadingDigits= 0, i8 decimalPointPosition= 0) {
+        if (x < 0) {
+            if (!push('-')) {
+                return *this;
+            }
+
+            x *= -1;
+        }
+        printUnsigned((u64)x, minLeadingDigits, decimalPointPosition);
+        return *this;
+    }
+
+    BufferPrinter& printUnsigned(u64 x, u8 minLeadingDigits = 0, i8 decimalPointPosition= 0) {
+        auto preDecimalDigits = decimalPointPosition;
+
+        if (!x) {
+            if (!minLeadingDigits) {
+                minLeadingDigits = 1;
+            }
+            while (minLeadingDigits--) {
+                if (!push('0')) {
+                    break;
+                }
+            }
+            return *this;
+        }
+
+        if (decimalPointPosition > 0) {
+            if (decimalPointPosition > minLeadingDigits) {
+                minLeadingDigits = 0;
+            }
+            else {
+                minLeadingDigits -= decimalPointPosition;
+            }
+        }
+
+        // Print each digit by dividing by 10 -> prints the full number in reverse
+        auto begin = cursor;
+        while (x) {
+            if (decimalPointPosition && !preDecimalDigits) {
+                if (!push('.')) {
+                    break;
+                }
+            }
+            preDecimalDigits++;
+
+            if (preDecimalDigits > 0 && minLeadingDigits > 0) {
+                minLeadingDigits--;
+            }
+
+            u8 digit = x % 10;
+            x /= 10;
+            if (!push(digit + '0')) {
+                break;
+            }
+        }
+
+        // Add leading zeros for negative exponent (after flipping they end up in front)
+        if (decimalPointPosition && preDecimalDigits <= 0) {
+            while (preDecimalDigits++ < 0) {
+                if (!push('0')) {
+                    break;
+                }
+            }
+            push('.');
+            push('0');
+
+            if (minLeadingDigits > 0) {
+                minLeadingDigits--;
+            }
+        }
+
+        // Add leading zeros
+        while (minLeadingDigits--) {
+            if (!push('0')) {
+                break;
+            }
+        }
+
+        // Flip the digits
+        auto end = cursor - 1;
+        while ((end - begin) >= 1) {
+            auto temp = *begin;
+            *begin = *end;
+            *end = temp;
+            end--;
+            begin++;
+        }
+
+        // Add trailing zeros for positive exponent
+        while (decimalPointPosition-- > 0) {
+            if (!push('0')) {
+                break;
+            }
+        }
+
+        return *this;
+    }
+
+    BufferPrinter& print(const char* str) {
+        assert( str ); // Cannot print empty string
+        auto len = strlen(str);
+        if (cursor + len >= buffer.end()) {
+            len = (buffer.end() - cursor) - 1;
+        }
+        memcpy(cursor, str, len);
+        cursor += len;
+        return *this;
+    }
+
+    BufferPrinter& printChar(char c) {
+        push(c);
+        return *this;
+    }
+
+    const char* cString() {
+        *cursor = '\0';
+        return (const char*)buffer.begin();
+    }
+
+private:
+    bool push(u8 c) {
+        if (cursor >= buffer.end()-1) { // Leave space for '\0'
+            return false;
+        }
+
+        *(cursor++) = c;
+        return true;
+    }
+
+    Buffer buffer;
+    u8* cursor;
 };
