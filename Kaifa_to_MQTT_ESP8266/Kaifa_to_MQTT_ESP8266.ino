@@ -173,6 +173,8 @@ class LocalBuffer;
 class OwnedBuffer;
 class BufferReaderBase;
 class BufferReader;
+template<typename T>
+class SerialBufferReader;
 
 /**
 * Reimplement a few useful standard classes in the absence of the STL
@@ -612,4 +614,102 @@ public:
 private:
     Buffer buffer;
     u32 index{ 0 };
+};
+
+template<typename T>
+class SerialBufferReader : public BufferReaderBase {
+public:
+    SerialBufferReader(T& serialIntf, const Buffer& buf) : serialInterface(serialIntf), buffer(buf) {}
+
+    bool hasNext(u32 c = 1) const {
+        return readIndex+ c <= writeIndex;
+    }
+
+    u8 nextU8() {
+        ensureBytes(1);
+        return buffer.at(readIndex++);
+    }
+
+    u8 peakU8() {
+        ensureBytes(1);
+        return buffer.at(readIndex);
+    }
+
+    u16 nextU16() {
+        ensureBytes(2);
+        u16 val = readU16(buffer, readIndex);
+        readIndex += 2;
+        return val;
+    }
+
+    u32 nextU32() {
+        ensureBytes(4);
+        u32 val = readU32(buffer, readIndex);
+        readIndex += 4;
+        return val;
+    }
+
+    u64 nextU64() {
+        ensureBytes(8);
+        u64 val = readU64(buffer, readIndex);
+        readIndex += 8;
+        return val;
+    }
+
+    ErrorOr<void> assertU8(u8 val) {
+        if (!hasNext()) {
+            return Error{ "No remaining bytes to read" };
+        }
+        auto actualVal = nextU8();
+        if (val != actualVal) {
+            return Error{ "Unexpected byte" };
+        }
+        return {};
+    }
+
+    void skip(u32 num = 1) {
+        ensureBytes(num);
+        readIndex += num;
+    }
+
+    Buffer slice(i32 len = 0) {
+        assert(len >= 0); // SerialBuffer does not support negative slice lengths
+        ensureBytes(len);
+        Buffer sliced = buffer.slice(readIndex, readIndex + len);
+        readIndex += len;
+        return sliced;
+    }
+
+    Buffer allDataRead() const {
+        return buffer.slice(0, writeIndex);
+    }
+
+private:
+    void readBlock(u32 readAtLeast) {
+        assert(writeIndex + readAtLeast <= buffer.length()); // Buffer is too small to read the requested number of bytes
+        if (readAtLeast) {
+            auto bytesWritten= serialInterface.readBytes((char*)&buffer[writeIndex], readAtLeast);
+            writeIndex += bytesWritten;
+            assert(bytesWritten >= readAtLeast); // Timeout occured before requested number of bytes could be read
+        }
+
+        // Do try to read even more if the end char was just read
+        if (!(readAtLeast && writeIndex && buffer.at(writeIndex - 1) == 0x16)) {
+            writeIndex += serialInterface.readBytesUntil(0x16, (char*)&buffer[writeIndex], buffer.length()- writeIndex);
+            assert(writeIndex < buffer.length()); // Buffer was too small 
+            buffer[writeIndex++] = 0x16; // Add end byte
+        }
+    }
+
+    void ensureBytes(u32 num) {
+        if (!hasNext(num)) {
+            auto availableBytes = writeIndex - readIndex;
+            readBlock(num - availableBytes);
+        }
+    }
+
+    T& serialInterface;
+    Buffer buffer;
+    u32 readIndex{ 0 };
+    u32 writeIndex{ 0 };
 };
