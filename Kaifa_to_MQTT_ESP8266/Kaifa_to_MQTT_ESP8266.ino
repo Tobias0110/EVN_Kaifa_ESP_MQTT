@@ -167,6 +167,8 @@ namespace NoStl {
 class Error;
 template<typename>
 class ErrorType;
+class Buffer;
+template<int>
 
 /**
 * Reimplement a few useful standard classes in the absence of the STL
@@ -334,6 +336,98 @@ public:
     using ErrorOr<EmptyType>::ErrorOr;
 };
 
+class Buffer {
+public:
+    Buffer(u8* p, u32 l) : ptr(p), byteCount(l) {}
+
+    Buffer(const OwnedBuffer&) = delete;
+
+    template<typename T>
+    void printHex(T& stream) const {
+        for (u32 i = 0; i < byteCount; i++) {
+            const char c[] = "0123456789abcdef";
+
+            stream << c[ptr[i] >> 4] << c[ptr[i] & 0xF] << ' ';
+
+            if ((i+1) % 16 == 0) {
+                stream << '\n';
+            }
+        }
+
+        if (byteCount % 16) {
+            stream << '\n';
+        }
+    }
+
+    template<typename T>
+    void parseHex(const T& source, u32 nibbleCount, u32 maxReadBytes= 0, u32 sourceOffset= 0) {
+        u32 writeIdx = 0;
+        for (u32 readIdx = 0; nibbleCount > 0 && writeIdx < byteCount && (readIdx < maxReadBytes || !maxReadBytes); readIdx++) {
+            u8 value;
+            u8 c = source[readIdx+ sourceOffset];
+            if (c >= '0' && c <= '9') {
+                value = c - '0';
+            }
+            else if (c >= 'a' && c <= 'f') {
+                value = c - 'a' + 10;
+            }
+            else if (c >= 'A' && c <= 'F') {
+                value = c - 'A' + 10;
+            }
+            else {
+                continue;
+            }
+
+            if (nibbleCount % 2 == 0) {
+                ptr[writeIdx] = value << 4;
+            }
+            else {
+                ptr[writeIdx] |= value;
+                writeIdx++;
+            }
+            nibbleCount--;
+        }
+    }
+
+    static ErrorOr<OwnedBuffer> fromHexString(const char* hexString);
+
+    auto length() const { return byteCount; }
+    auto at(u32 idx) const { assert(idx < byteCount);  return ptr[idx]; }
+
+    Buffer slice(u32 begin, u32 end) const {
+        assert(begin < byteCount&& end <= byteCount);
+        return { ptr + begin, end - begin };
+    }
+
+    void insertAt(const Buffer& other, u32 pos) {
+        assert(other.byteCount + pos <= byteCount); // Buffer overflow
+        memcpy(ptr + pos, other.ptr, other.byteCount);
+    }
+
+    void shrinkLength(u32 size) {
+        assert(size <= byteCount);
+        byteCount = size;
+    }
+
+    u8* begin() { return ptr; }
+    const u8* begin() const { return ptr; }
+    const char* charBegin() const { return reinterpret_cast<const char*>(ptr); }
+    const u8* end() const { return ptr + byteCount; }
+
+    u8& operator[](u32 idx) {
+        assert(idx < byteCount);
+        return ptr[idx];
+    }
+
+    u8 operator[](u32 idx) const {
+        assert(idx < byteCount);
+        return ptr[idx];
+    }
+
+protected:
+    u8* ptr;
+    u32 byteCount;
+};
 char ssid[33], password[64], MQTT_BROKER[21], mqtt_user[21], mqtt_password[21], clientId[21], mqtt_path[101];
 int MQTT_PORT = 1883;
 
