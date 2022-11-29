@@ -188,6 +188,12 @@ class CosemScaledValue;
 class CosemTimestamp;
 class CosemMeterNumber;
 class CosemData;
+template<typename>
+class MqttSenderImplBase;
+template<typename>
+class MqttRawSender;
+template<typename>
+class MqttTopicSender;
 
 /**
 * Reimplement a few useful standard classes in the absence of the STL
@@ -1713,6 +1719,108 @@ private:
     CosemMeterNumber meterNumber;
     u32 fieldCount{ 0 };
     CosemScaledValue fields[CosemDataField::NumberOfFields];
+};
+
+
+
+
+
+template<typename T>
+class MqttSenderImplBase : public MqttSender {
+public:
+    MqttSenderImplBase(T& cl, const char* basePath, const char* client, const char* user, const char* pwd)
+        : MqttSender(), client{ cl }, basePathLength{ strlen(basePath) } {
+
+        strncpy(clientId, client, 21);
+        clientId[20] = '\0';
+
+        strncpy(username, user, 21);
+        username[20] = '\0';
+        
+        strncpy(password, pwd, 21);
+        password[20] = '\0';
+
+        assert(basePathLength < maxPathLength - 20);
+        strcpy(path, basePath);
+        if (!basePathLength || path[basePathLength - 1] != '/') {
+            path[basePathLength] = '/';
+            basePathLength++;
+        }
+    }
+
+    virtual void connect() final {
+        while (!client.connected()) {
+            client.connect(clientId, username, password);
+            delay(100);
+        }
+    }
+
+protected:
+    void setEndpointName(const char* endpointName) {
+        auto nameLength = strlen(endpointName);
+        assert(nameLength + basePathLength < maxPathLength); // Mqtt path too long
+        memcpy(path + basePathLength, endpointName, nameLength + 1); // Copy including the null byte
+    }
+
+    T& client;
+    static constexpr u32 maxPathLength = 120;  // 100 for base path + 20 for endpoint name
+    char clientId[21];
+    char username[21];
+    char password[21];
+    char path[maxPathLength];
+    u32 basePathLength;
+};
+
+template<typename T>
+class MqttRawSender final : public MqttSenderImplBase<T> {
+public:
+    using MqttSenderImplBase<T>::MqttSenderImplBase;
+
+    virtual void publishRaw(const Buffer& rawData) override {
+        this->setEndpointName("raw");
+        this->client.publish(this->path, rawData.begin(), rawData.length(), false);
+    }
+
+protected:
+    virtual void appendField(const CosemTimestamp& timestamp) override {}
+    virtual void appendField(const CosemScaledValue& value) override {}
+    virtual void appendField(const CosemMeterNumber&) override {}
+    virtual void endFieldTransmission() override {}
+};
+
+template<typename T>
+class MqttTopicSender final : public MqttSenderImplBase<T> {
+public:
+    using MqttSenderImplBase<T>::MqttSenderImplBase;
+
+    virtual void publishRaw(const Buffer&) override {}
+
+protected:
+    virtual void appendField(const CosemTimestamp& timestamp) override {
+        LocalBuffer<100> printingBuffer;
+        BufferPrinter printer{ printingBuffer };
+        timestamp.serialize(printer);
+        this->setEndpointName("timestamp");
+
+        this->client.publish(this->path, printer.cString(), false);
+    }
+
+    virtual void appendField(const CosemMeterNumber& meterNumber) override {
+        this->setEndpointName("meternumber");
+
+        this->client.publish(this->path, meterNumber.cString(), false);
+    }
+
+    virtual void appendField(const CosemScaledValue& value) override {
+        LocalBuffer<100> printingBuffer;
+        BufferPrinter printer{ printingBuffer };
+        value.serialize(printer);
+        this->setEndpointName(value.fieldLabel().endpoint());
+
+        this->client.publish(this->path, printer.cString(), false);
+    }
+
+    virtual void endFieldTransmission() override {}
 };
 
 void setup() {}
