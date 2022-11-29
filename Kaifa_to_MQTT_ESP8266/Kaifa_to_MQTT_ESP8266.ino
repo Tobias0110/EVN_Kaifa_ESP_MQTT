@@ -179,6 +179,9 @@ class BufferPrinter;
 class MBusLinkFrame;
 class MBusTransportFrame;
 class DlmsApplicationFrame;
+class DlmsStructureNode;
+class DlmsNodeAllocator;
+class DlmsReader;
 
 /**
 * Reimplement a few useful standard classes in the absence of the STL
@@ -1061,6 +1064,310 @@ private:
     u8 security;
     u32 frameCounter;
     Buffer payloadBuffer;
+};
+
+
+class DlmsStructureNode {
+public:
+    enum class Type : u8 {
+        None,
+        Structure,
+        OctetString,
+        Enum,
+        I8, I16, I32, I64,
+        U8, U16, U32, U64
+    };
+
+    DlmsStructureNode* asStructure() {
+        type = Type::Structure;
+        next = nullptr;
+        content.childrenList.begin = nullptr;
+        content.childrenList.end = nullptr;
+        return this;
+    }
+
+    DlmsStructureNode* asInteger(Type newType, u64 value) {
+        type = newType;
+        content.value = value;
+        next = nullptr;
+        assert(isInteger());
+        return this;
+    }
+
+    DlmsStructureNode* asOctetString(Buffer buffer) {
+        type = Type::OctetString;
+        assert(buffer.length());
+        content.buffer = buffer;
+        next = nullptr;
+        return this;
+    }
+
+    DlmsStructureNode* asEnum(u8 id) {
+        type = Type::Enum;
+        content.value = id;
+        next = nullptr;
+        return this;
+    }
+
+    Buffer stringBuffer() const {
+        assert(type == Type::OctetString);
+        return content.buffer;
+    }
+
+    u64 u64Value() const {
+        assert(isInteger());
+        return content.value;
+    }
+
+    u8 enumValue() const {
+        assert(type == Type::Enum);
+        return (u8)content.value;
+    }
+
+    void append(DlmsStructureNode* node) {
+        assert(isStructure());
+        assert(!node->next); // "Cannot append dsml structure node which is already part of another strcutre node"
+
+        if (!content.childrenList.begin) {
+            content.childrenList.begin = node;
+        }
+        else {
+            content.childrenList.end->next = node;
+        }
+
+        content.childrenList.end = node;
+    }
+
+    bool isStructure() const { return type == Type::Structure; }
+    bool isOctetString() const { return type == Type::OctetString; }
+    bool isEnum() const { return type == Type::Enum; }
+    bool isInteger() const {
+        return type == Type::I8 || type == Type::I16 || type == Type::I32 || type == Type::I64 || 
+            type == Type::U8 || type == Type::U16 || type == Type::U32 || type == Type::U64;
+    }
+
+    class Iterator {
+    public:
+        explicit Iterator(const DlmsStructureNode* node= nullptr) : ptr( node ) {}
+
+        const DlmsStructureNode& get() { assert(ptr); return *ptr; }
+        const DlmsStructureNode& operator*() { assert(ptr); return *ptr; }
+        const DlmsStructureNode* operator->() { assert(ptr); return ptr; }
+
+        bool isEnd() const { return !ptr; }
+        bool hasNext() const { return ptr && ptr->next; }
+        void next() {
+            assert(!isEnd());
+            ptr = ptr->next;
+        }
+        void operator++() { next(); }
+        bool operator==(const Iterator& other) const { return ptr == other.ptr; }
+        bool operator!=(const Iterator& other) const { return ptr != other.ptr; }
+    private:
+        const DlmsStructureNode* ptr;
+    };
+
+    Iterator begin() const { return isStructure() ? Iterator(content.childrenList.begin) : Iterator(); }
+    Iterator end() const { return Iterator(); }
+
+    template<typename T>
+    void print(T& stream) const {
+        char indentString[17];  // Space for up to 8 indents and one \0
+        indentString[0] = '\0';
+        printImpl(stream, indentString, 0, 8);
+    }
+
+private:
+    template<typename T>
+    void printImpl(T& stream, char* indentString, u32 currentIndent, u32 maxIndent) const {
+        stream << indentString;
+
+        bool doIndent;
+        switch (type) {
+        case Type::None: stream << "<Empty>\n"; break;
+        case Type::Enum: stream << "Enum: " << (int)(u8)content.value << '\n'; break;
+        case Type::U8: stream << "u8: " << (int)(u8)content.value << '\n'; break;
+        case Type::U16: stream << "u16: " << (u16)content.value << '\n'; break;
+        case Type::U32: stream << "u32: " << (u32)content.value << '\n'; break;
+        case Type::U64: stream << "u64: " << (u64)content.value << '\n'; break;
+        case Type::I8: stream << "i8: " << (int)(i8)content.value << '\n'; break;
+        case Type::I16: stream << "i16: " << (i16)content.value << '\n'; break;
+        case Type::I32: stream << "i32: " << (i32)content.value << '\n'; break;
+        case Type::I64: stream << "i64: " << (i64)content.value << '\n'; break;
+        case Type::OctetString:
+            stream << "OctetString [" << content.buffer.length() << "]: ";
+            content.buffer.printHex(stream);
+            break;
+        case Type::Structure:
+            stream << "Structure: \n";
+            doIndent = currentIndent < maxIndent;
+            if (doIndent) {
+                indentString[currentIndent * 2 + 0] = ' ';
+                indentString[currentIndent * 2 + 1] = ' ';
+                indentString[currentIndent * 2 + 2] = '\0';
+                currentIndent++;
+            }
+            for (auto& childNode : *this) {
+                childNode.printImpl(stream, indentString, currentIndent, maxIndent);
+            }
+            if (doIndent) {
+                currentIndent--;
+                indentString[currentIndent * 2] = '\0';
+            }
+            break;
+        default:
+            assert(false); // "Cannot print dsml structure node with unknown type"
+        }
+    }
+
+    union {
+        struct {
+            DlmsStructureNode* begin;
+            DlmsStructureNode* end;
+        } childrenList;             // Structure
+        Buffer buffer;              // OctetString
+        u64 value;                  // Integer, Enum
+    } content{.value= 0};
+
+    Type type{ Type::None };
+    DlmsStructureNode* next{ nullptr };
+};
+
+class DlmsNodeAllocator {
+public:
+    DlmsNodeAllocator() = default;
+    DlmsNodeAllocator(DlmsNodeAllocator&& other)
+        : begin(NoStl::move(other.begin)), end(other.end) {
+        other.end = nullptr;
+    }
+
+    DlmsStructureNode* allocate() {
+        if (!end || end->slotsUsed >= 64) {
+            NoStl::UniquePtr<Bucket> newBucket{ new Bucket() };
+            auto bucketPtr = newBucket.get();
+            if (!end) {
+                begin = NoStl::move(newBucket);
+            }
+            else {
+                end->next = NoStl::move(newBucket);
+            }
+            end = bucketPtr;
+        }
+
+        auto* value = end->items + end->slotsUsed;
+        end->slotsUsed++;
+        return value;
+    }
+
+    void freeAll() {
+        end = nullptr;
+        begin.reset();
+    }
+
+    virtual ~DlmsNodeAllocator() {
+        freeAll();
+    }
+
+private:
+    struct Bucket {
+        DlmsStructureNode items[64];
+        u8 slotsUsed{ 0 };
+        NoStl::UniquePtr<Bucket> next{ nullptr };
+    };
+
+    NoStl::UniquePtr<Bucket> begin;
+    Bucket* end{ nullptr };
+};
+
+class DlmsReader {
+public:
+    explicit DlmsReader(const Buffer& buffer)
+        : reader( buffer ) {}
+
+    void skipHeader() {
+        reader.skip(6 + 12); // 6 unknown byte + 1 full timestamp
+    }
+
+    ErrorOr<DlmsStructureNode*> readNext(DlmsNodeAllocator& allocator) {
+        switch (reader.peakU8()) {
+        case 0x02: return readStructure(allocator); // Structure
+        case 0x09: return readOctetString(allocator); // Octet String
+        case 0x0F: return readInteger(allocator); // i8
+        case 0x10: return readInteger(allocator); // i16
+        case 0x05: return readInteger(allocator); // i32
+        case 0x14: return readInteger(allocator); // i64
+        case 0x11: return readInteger(allocator); // u8
+        case 0x12: return readInteger(allocator); // u16
+        case 0x06: return readInteger(allocator); // u32
+        case 0x15: return readInteger(allocator); // u64
+        case 0x16: return readEnum(allocator); // Unit Enum
+        default:
+            debugOut << "bad byte" << (int)reader.peakU8() << std::endl;
+            return Error{ "Unsupported dlms structure node type" };
+        }
+    }
+
+    ErrorOr<DlmsStructureNode*> readStructure(DlmsNodeAllocator& allocator) {
+        // debugOut << "found struct\n";
+        TRY(reader.assertU8(0x02));
+
+        auto* node = allocator.allocate()->asStructure();
+
+        // Could this be a multi-byte value for structures containing more than 256 items?
+        auto itemCount= reader.nextU8();
+        while (itemCount--) {
+            TRYGET(childNode, readNext(allocator));
+            node->append( childNode );
+        }
+
+        return node;
+    }
+
+    ErrorOr<DlmsStructureNode*> readInteger(DlmsNodeAllocator& allocator) {
+        DlmsStructureNode::Type nodeType;
+        u64 value;
+
+        auto intType = reader.nextU8();
+        switch (intType) {
+        case 0x0F: nodeType = DlmsStructureNode::Type::I8;   value = reader.nextU8();  break;
+        case 0x10: nodeType = DlmsStructureNode::Type::I16;  value = reader.nextU16(); break;
+        case 0x05: nodeType = DlmsStructureNode::Type::I32;  value = reader.nextU32(); break;
+        case 0x14: nodeType = DlmsStructureNode::Type::I64;  value = reader.nextU64(); break;
+        case 0x11: nodeType = DlmsStructureNode::Type::U8;   value = reader.nextU8();  break;
+        case 0x12: nodeType = DlmsStructureNode::Type::U16;  value = reader.nextU16(); break;
+        case 0x06: nodeType = DlmsStructureNode::Type::U32;  value = reader.nextU32(); break;
+        case 0x15: nodeType = DlmsStructureNode::Type::U64;  value = reader.nextU64(); break;
+        default:
+            return Error{ "Invalid dlms interger type" };
+        }
+
+        //debugOut << "found integer (" << (int)intType << ") " << value << std::endl;;
+
+        return allocator.allocate()->asInteger(nodeType, value);
+    }
+
+    ErrorOr<DlmsStructureNode*> readOctetString(DlmsNodeAllocator& allocator) {
+        TRY(reader.assertU8(0x09));
+
+        // Could this be a multi-byte value for octet sttings containing more than 255 bytes?
+        auto length = reader.nextU8();
+        auto string = reader.slice(length);
+
+        //debugOut << "found string\n";
+        //string.printHex(std::cout);
+
+        return allocator.allocate()->asOctetString(string);
+    }
+
+    ErrorOr<DlmsStructureNode*> readEnum(DlmsNodeAllocator& allocator) {
+        TRY(reader.assertU8(0x16));
+
+        //debugOut << "found enum " << (int)reader.peakU8() << std::endl;
+        return allocator.allocate()->asEnum( reader.nextU8() );
+    }
+
+private:
+    BufferReader reader;
 };
 
 void setup() {}
