@@ -178,6 +178,7 @@ class SerialBufferReader;
 class BufferPrinter;
 class MBusLinkFrame;
 class MBusTransportFrame;
+class DlmsApplicationFrame;
 
 /**
 * Reimplement a few useful standard classes in the absence of the STL
@@ -958,6 +959,107 @@ public:
 
 private:
     u8 ciField;
+    Buffer payloadBuffer;
+};
+
+class DlmsApplicationFrame {
+public:
+
+    DlmsApplicationFrame(Buffer st, u32 l, u8 s, u32 f, Buffer p)
+        : systemTitleBuffer(st), length(l), security(s), frameCounter(f), payloadBuffer(p) {}
+
+    template<typename T>
+    static ErrorOr<DlmsApplicationFrame> decodeBuffer(SerialBufferReader<T>& serialReader, Buffer& appDataBuffer) {
+        u32 appDataBufferPos = 0;
+
+        while (true) {
+            TRYGET(linkFrame, MBusLinkFrame::decodeBuffer(serialReader));
+
+            if (!linkFrame.isLongFrame()) {
+                return Error{ "Expected long link frame" };
+            }
+
+            TRYGET( transportFrame, MBusTransportFrame::fromLinkFrame(linkFrame) );
+            appDataBuffer.insertAt(transportFrame.payload(), appDataBufferPos);
+            appDataBufferPos += transportFrame.payload().length();
+
+            if (transportFrame.isLastFrame()) {
+                break;
+            }
+        }
+
+        appDataBuffer.shrinkLength(appDataBufferPos);
+        BufferReader appDataReader{ appDataBuffer };
+
+        RETHROW(appDataReader.assertU8(0xdb), "Expected general glo ciphering for application frame"); // general-glo-ciphering
+
+        auto systemTitleLength = appDataReader.nextU8();
+        auto systemTitle = appDataReader.slice(systemTitleLength);
+
+        u32 appDataLength = appDataReader.nextU8();
+        switch (appDataLength) {
+        case 0x81: appDataLength = appDataReader.nextU8(); break;
+        case 0x82: appDataLength = appDataReader.nextU16(); break;
+        default:
+            if (appDataLength > 127) {
+                return Error{ "Invalid application data length of application frame" };
+            }
+        }
+
+        if (appDataLength != appDataReader.remainingBytes()) {
+            return Error{ "Application frame data length does not match payload size" };
+        }
+
+        // Bit 0..3 -> Security suit id
+        // Bit 4    -> Authentication
+        // Bit 5    -> Encryption
+        // Bit 6    -> Key_Set subfield (0 = Unicast, 1 = Broadcast)
+        // Bit 7    -> Compression
+        auto security = appDataReader.nextU8();
+
+        // Why do 20 and 21 both describe aes 128 gcm with 96it iv?
+        if (security != 0x20 && security != 0x21) {
+            return Error{ "Expected encrypted data in application frame" };
+        }
+
+        auto frameCounter = appDataReader.nextU32();
+
+        return { systemTitle, appDataLength, security, frameCounter, appDataReader.slice(-1) };
+    }
+
+    void decrypt(const Buffer& key) {
+        auto gcm = GCM<AES128>{};
+
+        assert(key.length() == gcm.keySize());
+
+        gcm.clear();
+        gcm.setKey(key.begin(), gcm.keySize());
+
+        u8 initVector[12];
+        memcpy(initVector, systemTitleBuffer.begin(), 8);
+        initVector[8] = 0xFF & (frameCounter >> 24);
+        initVector[9] = 0xFF & (frameCounter >> 16);
+        initVector[10] = 0xFF & (frameCounter >> 8);
+        initVector[11] = 0xFF & (frameCounter);
+
+        gcm.setIV(initVector, 12);
+
+        u8 authData[1] = { 0x30 };
+        gcm.addAuthData(authData, 1);
+
+        // Decrypt the data buffer in place
+        gcm.decrypt(payloadBuffer.begin(), payloadBuffer.begin(), payloadBuffer.length());
+    }
+
+    const Buffer& payload() const {
+        return payloadBuffer;
+    }
+
+private:
+    Buffer systemTitleBuffer;
+    u32 length;
+    u8 security;
+    u32 frameCounter;
     Buffer payloadBuffer;
 };
 
