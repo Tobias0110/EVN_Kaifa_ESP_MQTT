@@ -105,6 +105,7 @@ namespace NoStl {
 
 
     template<typename> class Optional;
+    template<typename> class UniquePtr;
 }
 
 /**
@@ -166,6 +167,54 @@ namespace NoStl {
     // bogus prototypes all over the file
     template<typename T>
     Optional<T>::Storage::~Storage() {}
+
+    template<typename T>
+    class UniquePtr {
+    public:
+        UniquePtr() : ptr{ nullptr } {};
+        UniquePtr(const UniquePtr&) = delete;
+        UniquePtr(UniquePtr&& other) : ptr{ other.release() } {}
+        UniquePtr(T* p) : ptr{ p } {}
+
+        ~UniquePtr() {
+            reset();
+        }
+
+        UniquePtr& operator=(UniquePtr&& other) {
+            reset();
+            ptr = other.ptr;
+            other.ptr = nullptr;
+            return *this;
+        }
+
+        T& operator*() { assert(ptr); return *ptr; }
+        const T& operator*() const { assert(ptr); return *ptr; }
+
+        T* operator->() { assert(ptr); return ptr; }
+        const T* operator->() const { assert(ptr); return ptr; }
+
+        operator bool() const { return ptr; }
+
+        void reset() {
+            if (ptr) {
+                delete ptr;
+                ptr = nullptr;
+            }
+        }
+
+        T* release() {
+            auto* p = ptr;
+            ptr = nullptr;
+            return p;
+        }
+
+        T* get() {
+            return ptr;
+        }
+    
+    private:
+        T* ptr{ nullptr };
+    };
 }
 
 char ssid[33], password[64], MQTT_BROKER[21], mqtt_user[21], mqtt_password[21], clientId[21], mqtt_path[101];
