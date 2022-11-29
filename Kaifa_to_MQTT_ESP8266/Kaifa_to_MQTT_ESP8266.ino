@@ -1,10 +1,27 @@
 //Tobias Ecker OE3TEC 2022
 
-/*
- * File --> Preferences --> Board URLs: http://arduino.esp8266.com/stable/package_esp8266com_index.json
- * Tools --> Boards Manager --> Install: esp8266
- * Tools --> Board --> ESP2866 Boards --> NodeMCU 1.0 (ESP-12E Modul)
- */
+/**
+* Building the project using the Arduino IDE
+* - Install the ESP-Module as a compilation target
+*   - Add board config repository: File --> Preferences --> Paste URL into "Additional boards manager URLs": http://arduino.esp8266.com/stable/package_esp8266com_index.json
+*   - Install the toolchain: Tools --> Boards Manager --> Install: esp8266
+*   - Select the specific ESP module: Tools --> Board --> ESP2866 Boards --> NodeMCU 1.0 (ESP-12E Modul)
+* - Click verify to check if the project buildes without errors
+* - Connect the ESP module and click upload like for any other Arduino-like micro controller
+* 
+* Resources:
+* M-Bus Specification (version "late 90s"):
+* - https://m-bus.com/assets/downloads/MBDOC48.PDF
+* 
+* Smart meter customer data port description (Multiple Austrian energy companies):
+* - https://www.netz-noe.at/Download-(1)/Smart-Meter/218_9_SmartMeter_Kundenschnittstelle_lektoriert_14.aspx
+* - https://stadtwerkeschwaz.at/pdfs/Technische%20Beschreibung%20Kundenschnittstelle%20SWS%20Smart%20Meter.pdf
+* - https://www.salzburgnetz.at/content/dam/salzburgnetz/dokumente/stromnetz/Technische-Beschreibung-Kundenschnittstelle.pdf
+* - https://www.tinetz.at/infobereich/smart-meter/anleitungen-fragen-antworten/?no_cache=1&tx_bh_page%5Baction%5D=download&tx_bh_page%5Bcontroller%5D=File&tx_bh_page%5Bfile%5D=101&cHash=7b38017b8f4066394c0f5119ee1ae342
+* 
+* Python implementation of a DLMS to XML converter:
+* - https://github.com/Gurux/Gurux.DLMS.Python/
+**/
 
 #include <ESP8266WiFi.h>
 #include <WiFiClientSecure.h>
