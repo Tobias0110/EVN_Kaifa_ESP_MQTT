@@ -176,6 +176,8 @@ class BufferReader;
 template<typename T>
 class SerialBufferReader;
 class BufferPrinter;
+class MBusLinkFrame;
+class MBusTransportFrame;
 
 /**
 * Reimplement a few useful standard classes in the absence of the STL
@@ -855,6 +857,108 @@ private:
 
     Buffer buffer;
     u8* cursor;
+};
+
+class MBusLinkFrame {
+public:
+    enum class Type : u8 {SingleChar, Short, Control, Long};
+
+    MBusLinkFrame(Type type, u8 c = 0, u8 a = 0, u8 l = 0, Buffer p = { nullptr, 0 })
+        : frameType( type ), cField( c ), aField( a ), lField( l ), payloadBuffer( p ) {}
+
+    template<typename T>
+    static ErrorOr<MBusLinkFrame> decodeBuffer(SerialBufferReader<T>& reader) {
+        Type type;
+
+        switch (reader.nextU8()) {
+        case 0xe5: return { Type::SingleChar };
+        case 0x10: type = Type::Short; break;
+        case 0x68: type = Type::Control; break;
+        default: return Error{ "Invalid transport frame type" };
+        }
+
+        if (type == Type::Short) {
+            auto cField = reader.nextU8();
+            auto aField = reader.nextU8();
+            auto checksumField = reader.nextU8();
+            TRY(reader.assertU8( 0x16 ));
+
+            if (((cField + aField) & 0xFF) != checksumField) {
+                return Error{ "Checksum missmatch" };
+            }
+
+            return { Type::Short, cField, aField };
+        }
+
+        auto lField = reader.nextU8();
+        TRY(reader.assertU8(lField));
+        TRY(reader.assertU8(0x68));
+
+        auto cField = reader.nextU8();
+        auto aField = reader.nextU8();
+
+        auto userData = reader.slice(lField - 2);
+        auto checksumField = reader.nextU8();
+        TRY(reader.assertU8(0x16));
+
+        u8 checksum = cField + aField;
+        for (auto b : userData) {
+            checksum += b;
+        }
+
+        if (checksum != checksumField) {
+            return Error{ "Checksum missmatch" };
+        }
+
+        return { lField == 3 ? Type::Control : Type::Long, cField, aField, lField, userData };
+    }
+
+    const Buffer& payload() const {
+        return payloadBuffer;
+    }
+
+    bool isLongFrame() const {
+        return frameType == Type::Long;
+    }
+
+private:
+    Type frameType;
+    u8 cField, aField, ciField, lField;
+    Buffer payloadBuffer;
+};
+
+
+class MBusTransportFrame {
+public:
+
+    MBusTransportFrame(u8 c, Buffer p)
+        : ciField(c), payloadBuffer( p ) {}
+
+    static ErrorOr<MBusTransportFrame> fromLinkFrame(const MBusLinkFrame& frame) {
+        BufferReader reader{ frame.payload() };
+
+        auto ciField= reader.nextU8();
+        if (ciField & 0xE0) {
+            return Error{ "Did not expect a separate mbus header" };
+        }
+
+        RETHROW(reader.assertU8(0x01), "Expected logical devide id to be 1"); // STSAP (management logical device id 1 of the meter)
+        RETHROW(reader.assertU8(0x67), "Expected client id to be 103");       // DTSAP (consumer information push client id 103)
+
+        return { ciField, reader.slice(-1) };
+    }
+
+    const Buffer& payload() const {
+        return payloadBuffer;
+    }
+
+    bool isLastFrame() const {
+        return ciField & 0x10;
+    }
+
+private:
+    u8 ciField;
+    Buffer payloadBuffer;
 };
 
 void setup() {}
