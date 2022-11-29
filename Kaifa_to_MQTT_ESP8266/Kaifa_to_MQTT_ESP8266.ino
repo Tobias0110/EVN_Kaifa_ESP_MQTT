@@ -176,6 +176,7 @@ class BufferReader;
 template<typename T>
 class SerialBufferReader;
 class BufferPrinter;
+class MqttSender;
 class MBusLinkFrame;
 class MBusTransportFrame;
 class DlmsApplicationFrame;
@@ -861,6 +862,49 @@ private:
 
     Buffer buffer;
     u8* cursor;
+};
+
+class MqttSender {
+public:
+    MqttSender() = default;
+    virtual ~MqttSender() = default;
+
+    virtual void connect() = 0;
+    virtual void publishRaw(const Buffer&) = 0;
+
+    class FieldTransmission {
+    public:
+        explicit FieldTransmission(MqttSender& s) : sender{ s } {}
+
+        ~FieldTransmission() {
+            sender.endFieldTransmission();
+        }
+
+        void appendField(const CosemTimestamp& timestamp) {
+            sender.appendField(timestamp);
+        }
+
+        void appendField(const CosemScaledValue& value) {
+            sender.appendField(value);
+        }
+
+        void appendField(const CosemMeterNumber& value) {
+            sender.appendField(value);
+        }
+
+    private:
+        MqttSender& sender;
+    };
+
+    FieldTransmission transmitFields() {
+        return FieldTransmission{ *this };
+    }
+
+protected:
+    virtual void appendField(const CosemTimestamp&)= 0;
+    virtual void appendField(const CosemScaledValue&)= 0;
+    virtual void appendField(const CosemMeterNumber&) = 0;
+    virtual void endFieldTransmission() = 0;
 };
 
 class MBusLinkFrame {
