@@ -171,6 +171,8 @@ class Buffer;
 template<int>
 class LocalBuffer;
 class OwnedBuffer;
+class BufferReaderBase;
+class BufferReader;
 
 /**
 * Reimplement a few useful standard classes in the absence of the STL
@@ -499,3 +501,115 @@ ErrorOr<OwnedBuffer> Buffer::fromHexString(const char* hexString) {
 
     return { NoStl::move(buffer) };
 }
+
+class BufferReaderBase {
+protected:
+    u16 readU16(const Buffer& buffer, u32 index) const {
+        return (buffer.at(index) << 8) | buffer.at(index + 1);
+    }
+
+    u32 readU32(const Buffer& buffer, u32 index) const {
+        return (buffer.at(index) << 24) | (buffer.at(index + 1) << 16) | (buffer.at(index + 2) << 8) | buffer.at(index + 3);
+    }
+
+    u64 readU64(const Buffer& buffer, u32 index) const {
+        u64 upper = (buffer.at(index + 0) << 24) | (buffer.at(index + 1) << 16) | (buffer.at(index + 2) << 8) | buffer.at(index + 3);
+        u32 lower = (buffer.at(index + 4) << 24) | (buffer.at(index + 5) << 16) | (buffer.at(index + 6) << 8) | buffer.at(index + 7);
+        return (upper << 32) | lower;
+    }
+
+    u64 readUptToU64(const Buffer& buffer, u32 index, u32 remainingBytes, u8* bytesRead) const {
+        u64 value = 0;
+        auto num = *bytesRead= remainingBytes < 8 ? remainingBytes : 8;
+        for (u32 i = 0; i != num; i++) {
+            value = (value << 8) | buffer.at(index+ i);
+        }
+
+        return value;
+    }
+};
+
+class BufferReader : public BufferReaderBase{
+public:
+    explicit BufferReader(const Buffer& b) : buffer( b ) {}
+
+    bool hasNext(u32 c= 1) const {
+        return index + c <= buffer.length();
+    }
+
+    u8 nextU8() {
+        assert(hasNext());
+        return buffer.at(index++);
+    }
+
+    u8 peakU8() {
+        assert(hasNext());
+        return buffer.at(index);
+    }
+
+    u16 nextU16() {
+        assert(hasNext(2));
+        u16 val= readU16(buffer, index);
+        index += 2;
+        return val;
+    }
+
+    u32 nextU32() {
+        assert(hasNext(4));
+        u32 val = readU32(buffer, index);
+        index += 4;
+        return val;
+    }
+
+    u64 nextU64() {
+        assert(hasNext(8));
+        u64 val = readU64(buffer, index);
+        index += 8;
+        return val;
+    }
+
+    ErrorOr<void> assertU8(u8 val) {
+        if (!hasNext()) {
+            return Error{ "No remaining bytes to read" };
+        }
+        auto actualVal = nextU8();
+        if (val != actualVal) {
+            return Error{ "Unexpected byte" };
+        }
+        return {};
+    }
+
+    ErrorOr<void> assertRemaining(u32 num) const {
+        if (remainingBytes() < num) {
+            return Error{ "Less bytes remaining than expected" };
+        }
+        return {};
+    }
+
+    void skip(u32 num= 1) {
+        assert(hasNext(num));
+        index += num;
+    }
+
+    Buffer slice(i32 len= 0) {
+        auto end = len >= 0 ? index+ len : len + buffer.length() + 1;
+        Buffer sliced = buffer.slice(index, end);
+        index= end;
+        return sliced;
+    }
+
+    u32 remainingBytes() const {
+        return buffer.length() - index;
+    }
+
+    u64 nextUpToU64() {
+        u8 bytesRead;
+        u64 val = readUptToU64(buffer, index, remainingBytes(), &bytesRead);
+        index += bytesRead;
+        return val;
+    }
+
+private:
+    Buffer buffer;
+    u32 index{ 0 };
+};
