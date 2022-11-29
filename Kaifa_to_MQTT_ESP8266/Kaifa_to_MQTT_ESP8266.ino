@@ -1,4 +1,10 @@
-//Tobias Ecker OE3TEC 2022
+/**
+* ESP8266 based power meter M-Bus to mqtt gateway
+* - Tobias Ecker OE3TEC 2022
+* - Matthias Preymann PreyMa 2022
+* 
+* project url: https://github.com/Tobias0110/EVN_Kaifa_ESP_MQTT
+**/
 
 /**
 * Building the project using the Arduino IDE
