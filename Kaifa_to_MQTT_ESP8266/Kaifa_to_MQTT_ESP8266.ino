@@ -60,6 +60,58 @@
 #endif
 
 
+// Based on https://stackoverflow.com/questions/35087781/using-line-in-a-macro-definition
+// ... and based on SerenityOS' ErrorOr/Try pattern (see below). This could be way nicer
+// if MSVC supported GCC expression statements ({ ... })
+#define TOKEN_PASTE(x, y) x##y
+#define CAT(x,y) TOKEN_PASTE(x,y)
+
+#define TRYGET( varName, expression ) \
+    auto CAT(maybeValue_, __LINE__) = expression; \
+    if( CAT(maybeValue_, __LINE__).isError() ) { \
+        return CAT(maybeValue_, __LINE__).error(); \
+    } \
+    auto varName= NoStl::move(CAT(maybeValue_, __LINE__).value())
+
+#define TRY( expression ) \
+    { \
+        auto CAT(maybeValue_, __LINE__) = expression; \
+        if( CAT(maybeValue_, __LINE__).isError() ) { \
+            return CAT(maybeValue_, __LINE__).error(); \
+        } \
+    }
+
+#define RETHROW( expression, message ) \
+    { \
+        auto CAT(maybeValue_, __LINE__) = expression; \
+        if( CAT(maybeValue_, __LINE__).isError() ) { \
+            return Error{ message }; \
+        } \
+    }
+
+#ifndef ARDUINO
+
+#define debugOut std::cout
+
+void delay(uint32_t);
+
+#else
+
+namespace std { constexpr int endl = 0; }
+
+struct DebugSink {
+    template<typename T>
+    const DebugSink& operator<<(const T&) const { return *this; }
+};
+
+#define debugOut DebugSink()
+
+#undef assert
+#define assert(...) do{}while(0)
+
+#endif
+
+
 using u8 = uint8_t;
 using u16 = uint16_t;
 using u32 = uint32_t;
@@ -107,6 +159,10 @@ namespace NoStl {
     template<typename> class Optional;
     template<typename> class UniquePtr;
 }
+
+class Error;
+template<typename>
+class ErrorType;
 
 /**
 * Reimplement a few useful standard classes in the absence of the STL
@@ -216,6 +272,63 @@ namespace NoStl {
         T* ptr{ nullptr };
     };
 }
+
+// Heavily inspired by SerenityOS: https://github.com/SerenityOS/serenity/blob/master/AK/Error.h
+
+class Error {
+public:
+    explicit Error(const char* m) : msg( m ) {}
+
+    const char* message() const { return msg; }
+
+private:
+    const char* msg;
+};
+
+struct EmptyType {};
+
+template<typename T>
+class ErrorOr {
+public:
+    ErrorOr(Error e) : storage{ .error{NoStl::move(e)} }, storesError{ true } {}
+    
+    template<typename ...Args>
+    ErrorOr(Args&& ... args) : storage{ .value{NoStl::forward<Args>(args)...} }, storesError{ false } {}
+
+    ~ErrorOr() {
+        if (storesError) {
+            storage.error.~Error();
+        }
+        else {
+            storage.value.~T();
+        }
+    }
+
+    bool isError() const { return storesError; }
+    Error& error() { assert(isError()); return storage.error; }
+    T& value() { assert(!isError()); return storage.value; }
+
+private:
+    union Storage {
+        Error error;
+        T value;
+
+        ~Storage();
+    } storage;
+
+    bool storesError;
+};
+
+// Implement the union destructor out of line to prevent the Arduino IDE from creating
+// bogus prototypes all over the file
+template<typename T>
+ErrorOr<T>::Storage::~Storage() {}
+
+template<>
+class ErrorOr<void> : public ErrorOr<EmptyType> {
+public:
+    using ErrorOr<EmptyType>::ErrorOr;
+};
 
 char ssid[33], password[64], MQTT_BROKER[21], mqtt_user[21], mqtt_password[21], clientId[21], mqtt_path[101];
 int MQTT_PORT = 1883;
