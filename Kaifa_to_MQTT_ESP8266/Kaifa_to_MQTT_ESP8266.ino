@@ -29,6 +29,25 @@
 * - https://github.com/Gurux/Gurux.DLMS.Python/
 **/
 
+#ifndef ARDUINO
+#include <iostream>
+#include <string>
+#include <iomanip>
+#include <cassert>
+
+#include "Crypto-0.4.0/src/Crypto.h"
+#include "Crypto-0.4.0/src/AES.h"
+#include "Crypto-0.4.0/src/GCM.h"
+
+#else 
+
+/**
+* Dependencies:
+* - ESP8266 Arduino support (Arduino team - GNU LGPL v2.1): https://github.com/esp8266/Arduino
+* - Crypto: (Rhys Weatherley - MIT) https://rweather.github.io/arduinolibs/crypto.html
+* - PubSubClient: (Nicholas O'Leary - MIT) https://pubsubclient.knolleary.net/
+**/
+
 #include <ESP8266WiFi.h>
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
@@ -37,6 +56,8 @@
 #include <Crypto.h>
 #include <AES.h>
 #include <GCM.h>
+
+#endif
 
 char ssid[33], password[64], MQTT_BROKER[21], mqtt_user[21], mqtt_password[21], clientId[21], mqtt_path[101];
 int MQTT_PORT = 1883;
