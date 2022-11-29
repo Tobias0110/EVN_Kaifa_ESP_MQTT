@@ -856,3 +856,6 @@ private:
     Buffer buffer;
     u8* cursor;
 };
+
+void setup() {}
+void loop() {}
