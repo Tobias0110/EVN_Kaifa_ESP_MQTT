@@ -183,6 +183,11 @@ class DlmsApplicationFrame;
 class DlmsStructureNode;
 class DlmsNodeAllocator;
 class DlmsReader;
+class CosemDataField;
+class CosemScaledValue;
+class CosemTimestamp;
+class CosemMeterNumber;
+class CosemData;
 
 /**
 * Reimplement a few useful standard classes in the absence of the STL
@@ -1412,6 +1417,302 @@ public:
 
 private:
     BufferReader reader;
+};
+
+
+
+class CosemDataField {
+public:
+    enum Type : u8 {
+        None = 0,
+        ActiveEnergyAPlus,
+        ActiveEnergyAMinus,
+        InstantaneousPowerPPlus,
+        InstantaneousPowerPMinus,
+        VoltageL1,
+        VoltageL2,
+        VoltageL3,
+        CurrentL1,
+        CurrentL2,
+        CurrentL3,
+        PowerFactor,
+        NumberOfFields
+    };
+
+    CosemDataField(Type t = None) : type(t) {}
+
+    const char* name() const {
+        return fieldDescriptions[type].name;
+    }
+
+    const char* endpoint() const {
+        return fieldDescriptions[type].endpoint;
+    }
+
+    bool operator ==(Type t) const {
+        return type == t;
+    }
+
+    static NoStl::Optional<CosemDataField> fromCosemId(const Buffer& buffer) {
+        BufferReader reader{ buffer };
+        auto id = reader.nextUpToU64();
+        for (u32 i = 1; i != NumberOfFields; i++) {
+            if (id == fieldDescriptions[i].id) {
+                return { fieldDescriptions[i].type };
+            }
+        }
+
+        return {};
+    }
+
+private:
+    struct FieldDescription {
+        const Type type;
+        const u64 id;
+        const char* const name;
+        const char* const  endpoint;
+    };
+
+    static const FieldDescription fieldDescriptions[NumberOfFields];
+    static const u32 fieldDescriptionCount;
+
+    Type type;
+};
+
+const CosemDataField::FieldDescription CosemDataField::fieldDescriptions[NumberOfFields] = {
+    {None, 0x00, "<none>", ""},
+    {ActiveEnergyAPlus, 0x0100010800FF, "active energy A+", "w_p"},
+    {ActiveEnergyAMinus, 0x0100020800FF, "active energy A-", "w_n"},
+    {InstantaneousPowerPPlus, 0x0100010700FF, "instantaneous power P+", "p_p"},
+    {InstantaneousPowerPMinus, 0x0100020700FF, "instantaneous power P-", "p_n"},
+    {VoltageL1, 0x0100200700FF, "voltage L1", "u1"},
+    {VoltageL2, 0x0100340700FF, "voltage L2", "u2"},
+    {VoltageL3, 0x0100480700FF, "voltage L3", "u3"},
+    {CurrentL1, 0x01001F0700FF, "current L1", "i1"},
+    {CurrentL2, 0x0100330700FF, "current L2", "i2"},
+    {CurrentL3, 0x0100470700FF, "current L3", "i3"},
+    {PowerFactor, 0x01000D0700FF, "power factor", "phi"}
+};
+
+
+class CosemScaledValue {
+public:
+    CosemScaledValue() = default;
+
+    CosemScaledValue(CosemDataField f, i32 v, i8 s, u8 u)
+        : label{ f }, value{ v }, scale{ s }, unit{ u } {}
+
+    static NoStl::Optional<CosemScaledValue> fromStructureNodes(DlmsStructureNode::Iterator& it) {
+        assert(it->isOctetString());
+        auto type = CosemDataField::fromCosemId(it->stringBuffer());
+        if (!type) { return {}; }
+        
+        ++it;
+        if (it.isEnd() || !it->isInteger()) { return {}; }
+        auto value = (i32)it->u64Value(); // FIXME: This cast is probably bad
+        
+        ++it;
+        if (it.isEnd() || !it->isStructure()) { return {}; }
+        auto innerIt = it->begin();
+        if (innerIt.isEnd() || !innerIt->isInteger()) { return {}; }
+        auto scale = (i8)innerIt->u64Value();
+
+        ++innerIt;
+        if (innerIt.isEnd() || !innerIt->isEnum()) { return {}; }
+        auto unit= innerIt->enumValue();
+
+        return { type.value(), value, scale, unit };
+    }
+
+    template<typename T>
+    void print(T& stream) const {
+        stream << label.name() << ": " << value;
+
+        if (scale) {
+            stream << " x10^" << (int)scale;
+        }
+
+        stream << " [" << (int)unit << "]\n";
+    }
+
+    const CosemDataField& fieldLabel() const {
+        return label;
+    }
+
+    void serialize(BufferPrinter& printer) const {
+        printer.print(value, 0, scale);
+    }
+
+private:
+    CosemDataField label;
+    i32 value;
+    i8 scale;
+    u8 unit;
+};
+
+class CosemTimestamp {
+public:
+    CosemTimestamp() = default;
+
+    CosemTimestamp(u16 y, u8 m, u8 d, u8 w, u8 h, u8 mm, u8 s, i16 tz )
+        : year{ y }, month{ m }, day{ d }, weekday{ w }, hours{ h }, minutes{ mm }, seconds{ s }, timezoneOffsetMinutes{tz} {}
+
+    static ErrorOr<CosemTimestamp> decodeBuffer(const Buffer& buffer) {
+        BufferReader reader{ buffer };
+        TRY(reader.assertRemaining(12));
+
+        u16 year = reader.nextU16();
+        u8 month = reader.nextU8();
+        u8 day = reader.nextU8();
+        u8 weekday = reader.nextU8();
+        u8 hours = reader.nextU8();
+        u8 minutes = reader.nextU8();
+        u8 seconds = reader.nextU8();
+        reader.skip(); // Unknown byte
+        i16 timezoneOffsetMinutes = ((i16)reader.nextU16()) * -1; // Timezone offset is negative for some reason
+        reader.skip(); // Unknown byte
+
+        return { year, month, day, weekday, hours, minutes, seconds, timezoneOffsetMinutes };
+    }
+
+    template<typename T>
+    void print(T& stream) const {
+        i16 offsetHours = timezoneOffsetMinutes / 60;
+        i16 offsetMinutes = timezoneOffsetMinutes % 60;
+
+        stream << (int)day << '.' << (int)month << '.' << year << ' ';
+        stream << (int)hours << ':' << (int)minutes << ':' << (int)seconds << " (+/- " << offsetHours << ':' << offsetMinutes << ")\n";
+    }
+
+    void serialize(BufferPrinter& printer) const {
+        // Print date in ISO format
+        printer.print(year, 4).printChar('-').print(month, 2).printChar('-').print(day, 2);
+        printer.printChar('T').print(hours, 2).printChar(':').print(minutes, 2).printChar(':').print(seconds, 2);
+
+        if (!timezoneOffsetMinutes) {
+            printer.printChar('Z');
+            return;
+        }
+
+        auto offset = timezoneOffsetMinutes;
+        if (offset < 0) {
+            printer.printChar('-');
+            offset = offset * -1;
+        }
+        else {
+            printer.printChar('+');
+        }
+
+        auto offsetHours = offset / 60;
+        auto offsetMinutes = offset % 60;
+        printer.print(offsetHours, 2).printChar(':').print(offsetMinutes, 2);
+    }
+
+private:
+    u16 year;
+    u8 month;
+    u8 day;
+    u8 weekday;
+    u8 hours;
+    u8 minutes;
+    u8 seconds;
+    i16 timezoneOffsetMinutes;
+};
+
+class CosemMeterNumber {
+public:
+    CosemMeterNumber() {
+        data[0] = '\0';
+    }
+
+    CosemMeterNumber(const Buffer& buffer) {
+        u32 numBytes = buffer.length() > 12 ? 12 : buffer.length();
+        memcpy(data, buffer.begin(), numBytes);
+        data[numBytes] = '\0';
+    }
+
+    const char* cString() const { return data; }
+private:
+    char data[13];
+};
+
+class CosemData {
+public:
+    CosemData() = default;
+
+    static ErrorOr<CosemData> fromApplicationFrame(const DlmsApplicationFrame& applicationFrame) {
+        DlmsReader reader{ applicationFrame.payload() };
+
+        reader.skipHeader();
+
+        DlmsNodeAllocator allocator;
+        TRYGET(rootNode, reader.readNext(allocator));
+        // rootNode->print(std::cout);
+
+        if (!rootNode->isStructure()) {
+            return Error{ "Expected structure node as root of dslm data" };
+        }
+        auto it = rootNode->begin();
+
+        TRYGET(timestamp, CosemTimestamp::decodeBuffer(it->stringBuffer()));
+
+        CosemData cosemData;
+        cosemData.timestamp = timestamp;
+        ++it;
+
+        for (; !it.isEnd(); ++it) {
+            if (!it->isOctetString()) {
+                // Ignore value
+                continue;
+            }
+
+            // Meter number is the last octet string in the structure
+            if (!it.hasNext()) {
+                cosemData.meterNumber = { it->stringBuffer() };
+                continue;
+            }
+
+            auto scaledValue= CosemScaledValue::fromStructureNodes( it );
+            if (scaledValue) {
+                cosemData.addField( scaledValue.value() );
+            }
+        }
+
+        return cosemData;
+    }
+
+    template<typename T>
+    void print(T& stream) const {
+        stream << "Meter Number: " << meterNumber.cString() << '\n';
+        stream << "Timestamp: ";
+        timestamp.print(stream);
+
+        for (u32 i = 0; i != fieldCount; i++) {
+            fields[i].print(stream);
+        }
+    }
+
+    void mqttPublish(MqttSender& sender) {
+        auto transmission = sender.transmitFields();
+        transmission.appendField(meterNumber);
+        transmission.appendField(timestamp);
+
+        for (u32 i = 0; i != fieldCount; i++) {
+            transmission.appendField(fields[i]);
+        }
+    }
+
+private:
+    void addField(const CosemScaledValue& val) {
+        if (fieldCount < CosemDataField::NumberOfFields) {
+            fields[fieldCount++] = val;
+        }
+    }
+
+    CosemTimestamp timestamp;
+    CosemMeterNumber meterNumber;
+    u32 fieldCount{ 0 };
+    CosemScaledValue fields[CosemDataField::NumberOfFields];
 };
 
 void setup() {}
