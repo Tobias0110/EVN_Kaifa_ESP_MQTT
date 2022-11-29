@@ -194,6 +194,8 @@ template<typename>
 class MqttRawSender;
 template<typename>
 class MqttTopicSender;
+template<typename>
+class MqttJsonSender;
 
 /**
 * Reimplement a few useful standard classes in the absence of the STL
@@ -1821,6 +1823,67 @@ protected:
     }
 
     virtual void endFieldTransmission() override {}
+};
+
+template<typename T>
+class MqttJsonSender final : public MqttSenderImplBase<T> {
+public:
+    MqttJsonSender(T& cl, const char* basePath, const char* client, const char* user, const char* password)
+        : MqttSenderImplBase<T>(cl, basePath, client, user, password) {
+        init();
+    }
+
+    virtual void publishRaw(const Buffer&) override {}
+
+protected:
+    virtual void appendField(const CosemTimestamp& timestamp) override {
+        beginField("timestamp");
+        printer.printChar('"');
+        timestamp.serialize(printer);
+        printer.printChar('"');
+    }
+
+    virtual void appendField(const CosemMeterNumber& meterNumber) override {
+        beginField("meternumber");
+        printer.printChar('"');
+        printer.print(meterNumber.cString());
+        printer.printChar('"');
+    }
+
+    virtual void appendField(const CosemScaledValue& value) override {
+        beginField(value.fieldLabel().endpoint());
+        value.serialize(printer);
+    }
+
+    void init() {
+        printer.clear();
+        printer.printChar('{');
+        hasAtLeastOneField = false;
+    }
+
+    void beginField(const char* name) {
+        if (hasAtLeastOneField) {
+            printer.printChar(',');
+        }
+
+        hasAtLeastOneField = true;
+        printer.printChar('"').print(name).printChar('"').printChar(':');
+    }
+
+    virtual void endFieldTransmission() override {
+        printer.printChar('}');
+
+        this->setEndpointName("json");
+        this->client.publish(this->path, printer.cString(), false);
+
+        init();
+    }
+
+private:
+    constexpr static u32 bufferSize = CosemDataField::NumberOfFields * 25 + 100;
+    LocalBuffer<bufferSize> printBuffer;
+    BufferPrinter printer{ printBuffer };
+    bool hasAtLeastOneField{ false };
 };
 
 void setup() {}
