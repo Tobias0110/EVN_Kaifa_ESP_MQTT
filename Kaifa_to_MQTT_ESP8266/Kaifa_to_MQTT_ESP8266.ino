@@ -173,7 +173,7 @@ class LocalBuffer;
 class OwnedBuffer;
 class BufferReaderBase;
 class BufferReader;
-template<typename T>
+template<typename>
 class SerialBufferReader;
 class BufferPrinter;
 class MqttSender;
