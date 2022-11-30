@@ -2025,5 +2025,282 @@ private:
     bool hasAtLeastOneField{ false };
 };
 
+
+/**
+* Mock a bunch of different classes, functions and globals from the Arduino Libraries,
+* to make the same code compile on a Desktop machine. There compilation is way faster
+* and a real debugger is available, wich improves developer (my) happiness.
+**/
+#ifndef ARDUINO
+
+#define SERIAL_8N1 0x00
+#define SERIAL_8E1 0x01
+#define D0     0x00
+#define OUTPUT 0x00
+#define LOW    0x00
+#define HIGH   0x01
+#define WL_CONNECTED 0x0A
+
+class DummySerial {
+public:
+    DummySerial(OwnedBuffer buf) : buffer(NoStl::move(buf)) {}
+
+    void begin(u32, u32) { didBegin = true; }
+    void end() { didBegin = false; }
+    void setTimeout(u32) {}
+    
+    u32 available() {
+        return 0;
+    }
+
+    void setReadSourceFromBuffer(bool b) {
+        readFromBuffer = b;
+    }
+
+    u8 read() {
+        assert(didBegin);
+        if (!readFromBuffer) {
+            char c;
+            std::cin >> c;
+            return c;
+        }
+
+        return buffer.at(index++);
+    }
+
+    u32 readBytes(char* writePtr, u32 bytesToRead) {
+        assert(didBegin);
+        if (!readFromBuffer) {
+            std::cin.read((char*)writePtr, bytesToRead);
+            return bytesToRead;
+        }
+
+        bytesToRead = limitBytesToRead(bytesToRead);
+        memcpy(writePtr, buffer.begin() + index, bytesToRead);
+        index += bytesToRead;
+        return bytesToRead;
+    }
+
+    u32 readBytesUntil(char terminator, char* writePtr, u32 maxBytesToRead) {
+        assert(didBegin);
+        if (!readFromBuffer) {
+            for (u32 i = 0; i != maxBytesToRead; i++) {
+                auto c = read();
+                if (c == terminator) {
+                    return i;
+                }
+                writePtr[i] = c;
+            }
+            return maxBytesToRead;
+        }
+
+        maxBytesToRead = limitBytesToRead(maxBytesToRead);
+        for (u32 i = 0; i != maxBytesToRead; i++) {
+            u8 byte = buffer.at(index++);
+            if( byte == (u8)terminator ) {
+                return i;
+            }
+
+            writePtr[i] = byte;
+        }
+
+        return maxBytesToRead;
+    }
+
+    u32 println(const char* str) {
+        assert(didBegin);
+        std::cout << str << std::endl;
+        return strlen(str);
+    }
+
+    u32 print(const char* str) {
+        assert(didBegin);
+        std::cout << str;
+        return strlen(str);
+    }
+
+    u32 print(char c) {
+        assert(didBegin);
+        std::cout << c;
+        return 1;
+    }
+
+    void write(char c) {
+        assert(didBegin);
+        std::cout << c;
+    }
+
+private:
+    u32 limitBytesToRead(u32 bytesToRead) const {
+        return index + bytesToRead > buffer.length() ? buffer.length() - index : bytesToRead;
+    }
+
+    bool readFromBuffer{ false };
+    bool didBegin{ false };
+
+    u32 index{ 0 };
+    OwnedBuffer buffer;
+};
+
+class DummyPubSubClient {
+public:
+    bool connected() {
+        return isConnected;
+    }
+
+    void connect(const char* id, const char* user, const char* pwd) {
+        std::cout << "Mqtt-Connect as '" << id << "' '" << user << "' with password '" << pwd << "'\n";
+        isConnected = true;
+    }
+
+    void publish(const char* path, const char* data, bool x) {
+        std::cout << "Mqtt-Publish '" << path << "' -> string: '" << data << "'\n";
+    }
+
+    void publish(const char* path, const u8* data, u32 length, bool x) {
+        std::cout << "Mqtt-Publish '" << path << "' -> buffer: \n";
+        Buffer buffer{ const_cast<u8*>(data), length }; // Ugly const cast
+        buffer.printHex(std::cout);
+    }
+
+    void setBufferSize(u32) {}
+
+    void setServer(const char* address, u32 port) {
+        std::cout << "Mqtt set server: " << address << " " << port << std::endl;
+    }
+
+private:
+    bool isConnected{ false };
+};
+
+class DummyEEPROM {
+public:
+
+    explicit DummyEEPROM(const char* entries[], bool goodChecksum) : buffer{ Buffer::allocate(1024) } {
+        SettingsField::forEach([&](SettingsField field) {
+            auto offset = field.calcOffset();
+            memcpy((char*)buffer.begin() + offset, entries[field.enumType()], field.maxLength());
+            std::cout << "EEPROM - Inserting field '" << field.name() << "' at offset " << offset << std::endl;
+        });
+
+        auto len = SettingsField::requiredStorage();
+        u8 checksum= 0;
+        for (u32 i = 0; i < len; i++ ) {
+            checksum += buffer.at(i);
+        }
+        buffer[len] = goodChecksum ? checksum : checksum + 1; // Deliberatly set a bad checksum
+    }
+
+    void begin(u32 size) { didBegin = true; }
+
+    void commit() {
+        std::cout << "EEPROM commit\n";
+    }
+
+    u8& operator[](u32 idx) {
+        assert(buffer.begin());
+        assert(didBegin);
+        return buffer[idx];
+    }
+
+    u8 operator[](u32 idx) const {
+        assert(buffer.begin());
+        assert(didBegin);
+        return buffer[idx];
+    }
+
+private:
+    OwnedBuffer buffer;
+    bool didBegin{ false };
+};
+
+class DummyWifi {
+public:
+
+    u32 status() {
+        return statusCounter++;
+    }
+
+    void hostname(const char*) {}
+
+    void begin(const char* ssid, const char* pwd) {
+        std::cout << "WIFI ssid: '" << ssid << "' password: '" << pwd << "'\n";
+    }
+
+private:
+    u32 statusCounter{ 0 };
+};
+
+void delay(u32) {}
+void pinMode(u32, u32) {}
+void digitalWrite(u32, u32) {}
+
+
+
+/** Globals **/
+
+// M-bus link frame (example provided by EVN)
+auto serialDataFrame = Buffer::fromHexString(
+    "68FAFA6853FF000167DB084B464D6750"
+    "00000981F8200000002388D5AB4F9751"
+    "5AAFC6B88D2F85DAA7A0E3C0C40D0045"
+    "35C397C9D037AB7DBDA3291076154448"
+    "94A1A0DD7E85F02D496CECD3FF46AF5F"
+    "B3C9229CFE8F3EE4606AB2E1F409F36A"
+    "AD2E50900A4396FC6C2E083F373233A6"
+    "9616950758BFC7D63A9E9B6E99E21B2C"
+    "BC2B934772CA51FD4D69830711CAB1F8"
+    "CFF25F0A329337CBA51904F0CAED88D6"
+    "1968743C8454BA922EB00038182C22FE"
+    "316D16F2A9F544D6F75D51A4E92A1C4E"
+    "F8AB19A2B7FEAA32D0726C0ED80229AE"
+    "6C0F7621A4209251ACE2B2BC66FF0327"
+    "A653BB686C756BE033C7A281F1D2A7E1"
+    "FA31C3983E15F8FD16CC5787E6F51716"
+    "6814146853FF110167419A3CFDA44BE4"
+    "38C96F0E38BF83D98316"
+);
+
+const char* eepromInitData[]= {
+    "some-wifi",         // WifiSSID
+    "a-secure-password", // WifiPassword
+    "192.168.1.1",       // MqttBrokerAddress
+    "1883",              // MqttBrokerPort
+    "username",          // MqttBrokerUser
+    "user-passphrase",   // MqttBrokerPassword
+    "client-id",         // MqttBrokerClientId
+    "a/base/path",       // MqttBrokerPath
+    "2",                 // MqttMessageMode
+    "36C66639E48A8CA4D6BC8B282A793BBB" // DslmCosemDecryptionKey (example provided by EVN)
+};
+
+DummyEEPROM EEPROM{ eepromInitData, true };
+
+DummySerial Serial{ NoStl::move(serialDataFrame.value()) };
+DummyWifi WiFi;
+DummyPubSubClient pubsubClient;
+
+void setup();
+void loop();
+
+
+int main()
+{
+    setup();
+
+    Serial.setReadSourceFromBuffer(true);
+
+    loop();
+
+    return 0;
+}
+
+#else
+
+WiFiClient wifiClient;
+PubSubClient pubsubClient{ wifiClient };
+
+#endif
+
 void setup() {}
 void loop() {}
