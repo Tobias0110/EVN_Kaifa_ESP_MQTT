@@ -1262,7 +1262,6 @@ private:
     Buffer payloadBuffer;
 };
 
-
 class DlmsStructureNode {
 public:
     enum class Type : u8 {
@@ -1567,7 +1566,6 @@ private:
 };
 
 
-
 class CosemDataField {
 public:
     enum Type : u8 {
@@ -1861,8 +1859,6 @@ private:
     u32 fieldCount{ 0 };
     CosemScaledValue fields[CosemDataField::NumberOfFields];
 };
-
-
 
 
 
