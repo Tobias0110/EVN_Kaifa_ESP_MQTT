@@ -2298,5 +2298,180 @@ PubSubClient pubsubClient{ wifiClient };
 
 #endif
 
-void setup() {}
-void loop() {}
+EEPROMSettings<decltype(EEPROM)> Settings{ EEPROM };
+NoStl::UniquePtr<MqttSender> mqttSender;
+LocalBuffer<32> dlmsDecryptionKey;
+
+void flushSerial() {
+    while (Serial.available()) {
+        Serial.read();
+    }
+}
+
+void readSerialInput(Buffer& buffer) {
+    u32 index = 0;
+    while (index < buffer.length() - 1) {
+        auto c = Serial.read();
+        if (c == 0x0d) {
+            break;
+        }
+
+        Serial.write(c);
+        buffer[index++]= c;
+    }
+
+    buffer[index] = '\0';
+}
+
+void connectToWifi() {
+    WiFi.hostname("Power Meter Mqtt Gateway");
+
+    LocalBuffer<100> ssid, password;
+    Settings.getCString(SettingsField::WifiSSID, ssid);
+    Settings.getCString(SettingsField::WifiPassword, password);
+    WiFi.begin(ssid.charBegin(), password.charBegin());
+    
+    Serial.print("Connecting to WiFi");
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+    }
+    Serial.print('\n');
+}
+
+void initMqtt() {
+    {
+        LocalBuffer<100> address, port;
+        Settings.getCString(SettingsField::MqttBrokerAddress, address);
+        Settings.getCString(SettingsField::MqttBrokerPort, port);
+
+        pubsubClient.setServer(address.charBegin(), atoi(port.charBegin()));
+        pubsubClient.setBufferSize(1024);
+    }
+
+    {
+        LocalBuffer<101> basePath;
+        LocalBuffer<2> mqttMessageMode;
+        LocalBuffer<21> mqttClient;
+        LocalBuffer<21> mqttUser;
+        LocalBuffer<21> mqttPassword;
+
+        Settings.getCString(SettingsField::MqttBrokerPath, basePath);
+        Settings.getCString(SettingsField::MqttMessageMode, mqttMessageMode);
+        Settings.getCString(SettingsField::MqttBrokerClientId, mqttClient);
+        Settings.getCString(SettingsField::MqttBrokerUser, mqttUser);
+        Settings.getCString(SettingsField::MqttBrokerPassword, mqttPassword);
+        switch (mqttMessageMode.at(0)) {
+        case '0':
+            mqttSender = new MqttRawSender<decltype(pubsubClient)>{ pubsubClient, basePath.charBegin(), mqttClient.charBegin(), mqttUser.charBegin(), mqttPassword.charBegin() };
+            break;
+        case '1':
+            mqttSender = new MqttTopicSender<decltype(pubsubClient)>{ pubsubClient, basePath.charBegin(), mqttClient.charBegin(), mqttUser.charBegin(), mqttPassword.charBegin() };
+            break;
+        case '2':
+        default:
+            mqttSender = new MqttJsonSender<decltype(pubsubClient)>{ pubsubClient, basePath.charBegin(), mqttClient.charBegin(), mqttUser.charBegin(), mqttPassword.charBegin() };
+            break;
+        }
+    }
+}
+
+void runSetupWizard() {
+    
+}
+
+ErrorOr<void> waitForAndProcessPacket() {
+    LocalBuffer<600> serialReaderBuffer, applicationDataBuffer;
+    SerialBufferReader<decltype(Serial)> serialReader{ Serial, serialReaderBuffer };
+
+    TRYGET(applicationFrameOrError, DlmsApplicationFrame::decodeBuffer(serialReader, applicationDataBuffer));
+
+    auto decryptionKeyOrError = Buffer::fromHexString("36C66639E48A8CA4D6BC8B282A793BBB"); // evn key
+    if (decryptionKeyOrError.isError()) {
+        return decryptionKeyOrError.error();
+    }
+
+    applicationFrameOrError.decrypt(decryptionKeyOrError.value());
+
+    TRYGET(cosemDataOrError, CosemData::fromApplicationFrame(applicationFrameOrError));
+
+    // cosemData.print(std::cout);
+    mqttSender->connect();
+    mqttSender->publishRaw(serialReader.allDataRead());
+    cosemDataOrError.mqttPublish(*mqttSender);
+
+    return {};
+}
+
+void setup() {
+    Serial.begin(115200, SERIAL_8N1);
+
+    Serial.println("Starting smart meter mqtt gateway v1.1");
+    Serial.println("Initializing...");
+
+    EEPROM.begin(1024);
+
+    bool showSetup = false;
+    auto settingsError= Settings.begin();
+    if (settingsError.isError()) {
+        Serial.println("EEPROM checksum missmatch. The stored settings are likely broken. Entering setup...");
+        showSetup = true;
+
+    } else {
+        Serial.println("\nPress s for setup. Waiting for 10s...");
+        flushSerial();
+
+        char input;
+        Serial.setTimeout(10000);
+        Serial.readBytes(&input, 1);  // Read bytes respects the time out
+        bool showSetup= input == 's';
+    }
+    
+    if (showSetup) {
+        runSetupWizard();
+    }
+
+    delay(2000);
+    Serial.end();
+    delay(1000);
+    
+    // Setup serial connection for Mbus communication
+    Serial.begin(2400, SERIAL_8E1);
+    Serial.setTimeout(30000);
+
+    // Heart beat LED
+    pinMode(D0, OUTPUT);
+
+    // Connect to WIFI
+    connectToWifi();
+
+    // Show IP on Serial Port
+    // Serial.println("");
+    // Serial.println("WiFi connected");
+    // Serial.println("IP address: ");
+    // Serial.println(WiFi.localIP());
+
+    initMqtt();
+
+    Settings.getBytes(SettingsField::DslmCosemDecryptionKey, dlmsDecryptionKey);
+}
+
+void loop() {
+    // Heart beat LED blink
+    digitalWrite(D0, HIGH);
+    delay(100);
+    digitalWrite(D0, LOW);
+
+    // Try to read a mbus packet and transmit it via mqtt
+    auto error = waitForAndProcessPacket();
+    if (error.isError()) {
+        debugOut << "Caught error in ::waitForAndProcessPacket: " << error.error().message() << std::endl;
+
+        u8 secondsWithoutSerialData = 0;
+        while ((Serial.available() > 0) || (secondsWithoutSerialData < 2)) {
+            flushSerial();
+            delay(1000);
+            secondsWithoutSerialData = !Serial.available() ? secondsWithoutSerialData + 1 : 0;
+        }
+    }
+}
