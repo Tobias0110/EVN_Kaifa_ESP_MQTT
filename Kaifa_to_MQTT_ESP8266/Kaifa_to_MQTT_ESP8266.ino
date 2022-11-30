@@ -2295,7 +2295,7 @@ PubSubClient pubsubClient{ wifiClient };
 
 EEPROMSettings<decltype(EEPROM)> Settings{ EEPROM };
 NoStl::UniquePtr<MqttSender> mqttSender;
-LocalBuffer<32> dlmsDecryptionKey;
+LocalBuffer<16> dlmsDecryptionKey;
 
 void flushSerial() {
     while (Serial.available()) {
@@ -2381,12 +2381,7 @@ ErrorOr<void> waitForAndProcessPacket() {
 
     TRYGET(applicationFrameOrError, DlmsApplicationFrame::decodeBuffer(serialReader, applicationDataBuffer));
 
-    auto decryptionKeyOrError = Buffer::fromHexString("36C66639E48A8CA4D6BC8B282A793BBB"); // evn key
-    if (decryptionKeyOrError.isError()) {
-        return decryptionKeyOrError.error();
-    }
-
-    applicationFrameOrError.decrypt(decryptionKeyOrError.value());
+    applicationFrameOrError.decrypt(dlmsDecryptionKey);
 
     TRYGET(cosemDataOrError, CosemData::fromApplicationFrame(applicationFrameOrError));
 
