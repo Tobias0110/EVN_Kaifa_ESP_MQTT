@@ -177,6 +177,9 @@ template<typename T>
 class SerialBufferReader;
 class BufferPrinter;
 class MqttSender;
+class SettingsField;
+template<typename>
+class EEPROMSettings;
 class MBusLinkFrame;
 class MBusTransportFrame;
 class DlmsApplicationFrame;
@@ -918,6 +921,142 @@ protected:
     virtual void appendField(const CosemScaledValue&)= 0;
     virtual void appendField(const CosemMeterNumber&) = 0;
     virtual void endFieldTransmission() = 0;
+};
+
+
+class SettingsField {
+public:
+    enum Type : u8 {
+        WifiSSID= 0,
+        WifiPassword,
+        MqttBrokerAddress,
+        MqttBrokerPort,
+        MqttBrokerUser,
+        MqttBrokerPassword,
+        MqttBrokerClientId,
+        MqttBrokerPath,
+        MqttMessageMode,
+        DslmCosemDecryptionKey,
+
+        NumberOfFields
+    };
+
+    struct FieldInfo {
+        const Type type;
+        const char* name;
+        const char* defaultValue;
+        const u32 maxLength;
+    };
+
+    SettingsField(Type t) : type(t) {}
+    SettingsField(const SettingsField&) = default;
+
+    u32 calcOffset() const {
+        u32 offset = 0;
+        for (u32 i = 0; i < type; i++) {
+            offset += fields[i].maxLength;
+        }
+
+        return offset;
+    }
+
+    u32 maxLength() const { return fields[type].maxLength; }
+    const char* name() const { return fields[type].name; }
+    const Type enumType() const { return type; }
+
+    template<typename T>
+    static void forEach(const T& lam) {
+        for (u32 i = 0; i != NumberOfFields; i++) {
+            SettingsField field{ (Type)i };
+            lam(field);
+        }
+    }
+
+    static u32 requiredStorage() {
+        u32 len= 0;
+        for (u32 i = 0; i != NumberOfFields; i++) {
+            len += fields[i].maxLength;
+        }
+        return len;
+    }
+
+private:
+    static const FieldInfo fields[NumberOfFields];
+
+    Type type;
+};
+
+const SettingsField::FieldInfo SettingsField::fields[SettingsField::NumberOfFields] = {
+    {WifiSSID, "wifi ssid", nullptr, 33},
+    {WifiPassword, "wifi password", nullptr, 65},
+    {MqttBrokerAddress, "mqtt broker network ip address", nullptr, 21},
+    {MqttBrokerPort, "mqtt broker network port", "1883", 7},
+    {MqttBrokerUser, "mqtt broker user name", "power-meter", 21},
+    {MqttBrokerPassword, "mqtt broker password", nullptr, 21},
+    {MqttBrokerClientId, "mqtt broker client id", nullptr, 21},
+    {MqttBrokerPath, "mqtt broker path", nullptr, 101},
+    {MqttMessageMode, "mqtt message mode (0 - raw, 1 - topics, 2 - json)", "2", 2},
+    {DslmCosemDecryptionKey, "dslm/cosem decryption key (meter key)", nullptr, 33}
+};
+
+template<typename T>
+class EEPROMSettings {
+public:
+    EEPROMSettings(T& e) : eeprom(e) {}
+
+    ErrorOr<void> begin() {
+        if (!checkChecksum()) {
+            return Error{ "Bad EEPROM checksum" };
+        }
+
+        return {};
+    }
+
+    void getCString(SettingsField field, Buffer& buffer) {
+        assert(buffer.length() >= field.maxLength());
+        auto offset = field.calcOffset();
+        auto maxLength = field.maxLength();
+        
+        for (u32 idx = 0; idx < maxLength; idx++) {
+            u8 c = eeprom[offset + idx];
+            buffer[idx] = c;
+            if (!c) {
+                break;
+            }
+        }
+
+        buffer[maxLength-1] = '\0';
+    }
+
+    void getBytes(SettingsField field, Buffer& buffer) {
+        assert(buffer.length() >= (field.maxLength()-1)/2); // Ignore the null termination byte and convert nibble count to byte count
+
+        auto offset = field.calcOffset();
+        
+        for (u32 idx = 0; idx < field.maxLength()-1; idx++) {
+            buffer[idx]= eeprom[offset + idx];
+        }
+
+        buffer.parseHex(eeprom, field.maxLength() - 1, field.maxLength()- 1, offset);
+    }
+
+    void printConfiguration() {
+        // TODO
+    }
+
+
+private:
+
+    bool checkChecksum() {
+        auto storageSize = SettingsField::requiredStorage();
+        u8 checksum = 0;
+        for (u32 i = 0; i != storageSize; i++) {
+            checksum += eeprom[i];
+        }
+        return checksum == eeprom[storageSize];
+    }
+
+    T& eeprom;
 };
 
 class MBusLinkFrame {
