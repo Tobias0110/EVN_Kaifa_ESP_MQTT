@@ -1032,11 +1032,6 @@ public:
         assert(buffer.length() >= (field.maxLength()-1)/2); // Ignore the null termination byte and convert nibble count to byte count
 
         auto offset = field.calcOffset();
-        
-        for (u32 idx = 0; idx < field.maxLength()-1; idx++) {
-            buffer[idx]= eeprom[offset + idx];
-        }
-
         buffer.parseHex(eeprom, field.maxLength() - 1, field.maxLength()- 1, offset);
     }
 
