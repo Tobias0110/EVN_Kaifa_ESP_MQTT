@@ -884,6 +884,21 @@ protected:
     u8* cursor;
 };
 
+template<typename T>
+class SerialStream final {
+public:
+    SerialStream(T& s) : serial{ s } {}
+
+    template<typename U>
+    SerialStream& operator << (const U& x) {
+        serial.print(x);
+        return *this;
+    }
+
+private:
+    T& serial;
+};
+
 class MqttSender {
 public:
     MqttSender() = default;
@@ -1039,8 +1054,22 @@ public:
         buffer.parseHex(eeprom, field.maxLength() - 1, field.maxLength()- 1, offset);
     }
 
-    void printConfiguration() {
-        // TODO
+    template<typename U>
+    void printConfiguration(U& stream) {
+        SettingsField::forEach([&](SettingsField field) {
+            switch (field.enumType()) {
+            // Hide password fields
+            case SettingsField::WifiPassword:
+            case SettingsField::MqttBrokerPassword:
+            case SettingsField::DslmCosemDecryptionKey:
+                break;
+            default:
+                LocalBuffer<110> buffer;
+                getCString(field, buffer);
+                stream << "* " << field.name() << ": " << buffer.charBegin() << '\n';
+                break;
+            }
+        });
     }
 
 
@@ -2120,6 +2149,12 @@ public:
         return 1;
     }
 
+    u32 print(i32 val) {
+        assert(didBegin);
+        std::cout << val;
+        return 1;
+    }
+
     void write(char c) {
         assert(didBegin);
         std::cout << c;
@@ -2424,6 +2459,9 @@ void setup() {
     if (showSetup) {
         runSetupWizard();
     }
+
+    SerialStream serialStream{ Serial };
+    Settings.printConfiguration( serialStream );
 
     delay(2000);
     Serial.end();
