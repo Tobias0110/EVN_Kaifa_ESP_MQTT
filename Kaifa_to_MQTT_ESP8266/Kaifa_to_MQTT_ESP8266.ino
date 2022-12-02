@@ -38,6 +38,7 @@
 #include <string>
 #include <iomanip>
 #include <cassert>
+#include <conio.h>
 
 #include "Crypto-0.4.0/src/Crypto.h"
 #include "Crypto-0.4.0/src/AES.h"
@@ -981,6 +982,7 @@ public:
 
     u32 maxLength() const { return fields[type].maxLength; }
     const char* name() const { return fields[type].name; }
+    const char* defaultValue() const { return fields[type].defaultValue; }
     const Type enumType() const { return type; }
 
     template<typename T>
@@ -1051,7 +1053,28 @@ public:
         assert(buffer.length() >= (field.maxLength()-1)/2); // Ignore the null termination byte and convert nibble count to byte count
 
         auto offset = field.calcOffset();
-        buffer.parseHex(eeprom, field.maxLength() - 1, field.maxLength()- 1, offset);
+        buffer.parseHex(eeprom, field.maxLength() - 1, field.maxLength() - 1, offset);
+    }
+
+    void save() {
+        auto storageSize = SettingsField::requiredStorage();
+        eeprom[storageSize]= calcChecksum();
+
+        eeprom.commit();
+    }
+
+    void set(SettingsField field, const Buffer& buffer) {
+        auto offset = field.calcOffset();
+
+        for (u32 i = 0; i != field.maxLength() && i != buffer.length(); i++) {
+            eeprom[offset + i] = buffer[i];
+
+            if (buffer[i] == '\0') {
+                break;
+            }
+        }
+
+        eeprom[offset+ field.maxLength() - 1] = '\0';
     }
 
     template<typename U>
@@ -1075,13 +1098,18 @@ public:
 
 private:
 
-    bool checkChecksum() {
+    u8 calcChecksum() {
         auto storageSize = SettingsField::requiredStorage();
         u8 checksum = 0;
         for (u32 i = 0; i != storageSize; i++) {
             checksum += eeprom[i];
         }
-        return checksum == eeprom[storageSize];
+        return checksum;
+    }
+
+    bool checkChecksum() {
+        auto storageSize = SettingsField::requiredStorage();
+        return calcChecksum() == eeprom[storageSize];
     }
 
     T& eeprom;
@@ -2085,7 +2113,11 @@ public:
         assert(didBegin);
         if (!readFromBuffer) {
             char c;
-            std::cin >> c;
+            //std::cin >> c;
+            c= _getch();
+            if (c == '\r') {
+                return '\n';
+            }
             return c;
         }
 
@@ -2150,6 +2182,12 @@ public:
     }
 
     u32 print(i32 val) {
+        assert(didBegin);
+        std::cout << val;
+        return 1;
+    }
+
+    u32 print(u32 val) {
         assert(didBegin);
         std::cout << val;
         return 1;
@@ -2342,11 +2380,11 @@ void flushSerial() {
     }
 }
 
-void readSerialInput(Buffer& buffer) {
+u32 readSerialLine(Buffer& buffer) {
     u32 index = 0;
     while (index < buffer.length() - 1) {
         auto c = Serial.read();
-        if (c == 0x0d) {
+        if (c == '\n') {
             break;
         }
 
@@ -2355,6 +2393,7 @@ void readSerialInput(Buffer& buffer) {
     }
 
     buffer[index] = '\0';
+    return index;
 }
 
 void connectToWifi() {
@@ -2411,7 +2450,43 @@ void initMqtt() {
 }
 
 void runSetupWizard() {
-    
+    SerialStream serialStream{ Serial };
+
+    SettingsField::forEach([&](SettingsField field) {
+        while (true) {
+            serialStream << "Enter value for '" << field.name() << '\'';
+            if (field.defaultValue()) {
+                serialStream << " or just press enter to confirm default value (" << field.defaultValue() << ')';
+            }
+            serialStream << "\n(up to " << field.maxLength() - 1 << " chars) ";
+
+            LocalBuffer<150> buffer;
+            auto length = readSerialLine(buffer);
+            serialStream << '\n';
+
+            if (!length) {
+                if (!field.defaultValue()) {
+                    serialStream << "Error: Did not enter a value.\n";
+                    continue;
+                }
+
+                strncpy((char*)buffer.begin(), field.defaultValue(), 150);
+            }
+
+            if (length > field.maxLength() - 1) {
+                serialStream << "Error: The value '" << buffer.charBegin() << "' is too long. (" << length << " bytes)\n";
+                continue;
+            }
+
+            // TODO: Validation
+
+            Settings.set(field, buffer);
+            break;
+        }
+    });
+
+    serialStream << "Committing EEPROM...\n";
+    Settings.save();
 }
 
 ErrorOr<void> waitForAndProcessPacket() {
