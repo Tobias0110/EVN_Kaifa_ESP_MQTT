@@ -2,7 +2,7 @@
 * ESP8266 based power meter M-Bus to mqtt gateway
 * - Tobias Ecker OE3TEC 2022
 * - Matthias Preymann PreyMa 2022
-* 
+*
 * project url: https://github.com/Tobias0110/EVN_Kaifa_ESP_MQTT
 **/
 
@@ -14,17 +14,17 @@
 *   - Select the specific ESP module: Tools --> Board --> ESP2866 Boards --> NodeMCU 1.0 (ESP-12E Modul)
 * - Click verify to check if the project buildes without errors
 * - Connect the ESP module and click upload like for any other Arduino-like micro controller
-* 
+*
 * Resources:
 * M-Bus Specification (version "late 90s"):
 * - https://m-bus.com/assets/downloads/MBDOC48.PDF
-* 
+*
 * Smart meter customer data port description (Multiple Austrian energy companies):
 * - https://www.netz-noe.at/Download-(1)/Smart-Meter/218_9_SmartMeter_Kundenschnittstelle_lektoriert_14.aspx
 * - https://stadtwerkeschwaz.at/pdfs/Technische%20Beschreibung%20Kundenschnittstelle%20SWS%20Smart%20Meter.pdf
 * - https://www.salzburgnetz.at/content/dam/salzburgnetz/dokumente/stromnetz/Technische-Beschreibung-Kundenschnittstelle.pdf
 * - https://www.tinetz.at/infobereich/smart-meter/anleitungen-fragen-antworten/?no_cache=1&tx_bh_page%5Baction%5D=download&tx_bh_page%5Bcontroller%5D=File&tx_bh_page%5Bfile%5D=101&cHash=7b38017b8f4066394c0f5119ee1ae342
-* 
+*
 * Python implementation of a DLMS to XML converter:
 * - https://github.com/Gurux/Gurux.DLMS.Python/
 **/
@@ -208,7 +208,7 @@ namespace NoStl {
     template<typename T>
     class Optional {
     public:
-        Optional() : data{ .placeholder= 0 }, valueFlag{ false } {}
+        Optional() : data{ .placeholder = 0 }, valueFlag{ false } {}
 
         Optional(const Optional&) = delete;
         Optional(Optional&& other) : valueFlag{ other.valueFlag } {
@@ -251,7 +251,7 @@ namespace NoStl {
 
             ~Storage();
         };
-        
+
         Storage data;
         bool valueFlag{ false };
     };
@@ -304,7 +304,7 @@ namespace NoStl {
         T* get() {
             return ptr;
         }
-    
+
     private:
         T* ptr{ nullptr };
     };
@@ -314,7 +314,7 @@ namespace NoStl {
 
 class Error {
 public:
-    explicit Error(const char* m) : msg( m ) {}
+    explicit Error(const char* m) : msg(m) {}
 
     const char* message() const { return msg; }
 
@@ -328,7 +328,7 @@ template<typename T>
 class ErrorOr {
 public:
     ErrorOr(Error e) : storage{ .error{NoStl::move(e)} }, storesError{ true } {}
-    
+
     template<typename ...Args>
     ErrorOr(Args&& ... args) : storage{ .value{NoStl::forward<Args>(args)...} }, storesError{ false } {}
 
@@ -381,7 +381,7 @@ public:
 
             stream << c[ptr[i] >> 4] << c[ptr[i] & 0xF] << ' ';
 
-            if ((i+1) % 16 == 0) {
+            if ((i + 1) % 16 == 0) {
                 stream << '\n';
             }
         }
@@ -392,11 +392,11 @@ public:
     }
 
     template<typename T>
-    void parseHex(const T& source, u32 nibbleCount, u32 maxReadBytes= 0, u32 sourceOffset= 0) {
+    void parseHex(const T& source, u32 nibbleCount, u32 maxReadBytes = 0, u32 sourceOffset = 0) {
         u32 writeIdx = 0;
         for (u32 readIdx = 0; nibbleCount > 0 && writeIdx < byteCount && (readIdx < maxReadBytes || !maxReadBytes); readIdx++) {
             u8 value;
-            u8 c = source[readIdx+ sourceOffset];
+            u8 c = source[readIdx + sourceOffset];
             if (c >= '0' && c <= '9') {
                 value = c - '0';
             }
@@ -547,20 +547,20 @@ protected:
 
     u64 readUptToU64(const Buffer& buffer, u32 index, u32 remainingBytes, u8* bytesRead) const {
         u64 value = 0;
-        auto num = *bytesRead= remainingBytes < 8 ? remainingBytes : 8;
+        auto num = *bytesRead = remainingBytes < 8 ? remainingBytes : 8;
         for (u32 i = 0; i != num; i++) {
-            value = (value << 8) | buffer.at(index+ i);
+            value = (value << 8) | buffer.at(index + i);
         }
 
         return value;
     }
 };
 
-class BufferReader : public BufferReaderBase{
+class BufferReader : public BufferReaderBase {
 public:
-    explicit BufferReader(const Buffer& b) : buffer( b ) {}
+    explicit BufferReader(const Buffer& b) : buffer(b) {}
 
-    bool hasNext(u32 c= 1) const {
+    bool hasNext(u32 c = 1) const {
         return index + c <= buffer.length();
     }
 
@@ -576,7 +576,7 @@ public:
 
     u16 nextU16() {
         assert(hasNext(2));
-        u16 val= readU16(buffer, index);
+        u16 val = readU16(buffer, index);
         index += 2;
         return val;
     }
@@ -613,15 +613,15 @@ public:
         return {};
     }
 
-    void skip(u32 num= 1) {
+    void skip(u32 num = 1) {
         assert(hasNext(num));
         index += num;
     }
 
-    Buffer slice(i32 len= 0) {
-        auto end = len >= 0 ? index+ len : len + buffer.length() + 1;
+    Buffer slice(i32 len = 0) {
+        auto end = len >= 0 ? index + len : len + buffer.length() + 1;
         Buffer sliced = buffer.slice(index, end);
-        index= end;
+        index = end;
         return sliced;
     }
 
@@ -647,7 +647,7 @@ public:
     SerialBufferReader(T& serialIntf, const Buffer& buf) : serialInterface(serialIntf), buffer(buf) {}
 
     bool hasNext(u32 c = 1) const {
-        return readIndex+ c <= writeIndex;
+        return readIndex + c <= writeIndex;
     }
 
     u8 nextU8() {
@@ -713,14 +713,14 @@ private:
     void readBlock(u32 readAtLeast) {
         assert(writeIndex + readAtLeast <= buffer.length()); // Buffer is too small to read the requested number of bytes
         if (readAtLeast) {
-            auto bytesWritten= serialInterface.readBytes((char*)&buffer[writeIndex], readAtLeast);
+            auto bytesWritten = serialInterface.readBytes((char*)&buffer[writeIndex], readAtLeast);
             writeIndex += bytesWritten;
             assert(bytesWritten >= readAtLeast); // Timeout occured before requested number of bytes could be read
         }
 
         // Do try to read even more if the end char was just read
         if (!(readAtLeast && writeIndex && buffer.at(writeIndex - 1) == 0x16)) {
-            writeIndex += serialInterface.readBytesUntil(0x16, (char*)&buffer[writeIndex], buffer.length()- writeIndex);
+            writeIndex += serialInterface.readBytesUntil(0x16, (char*)&buffer[writeIndex], buffer.length() - writeIndex);
             assert(writeIndex < buffer.length()); // Buffer was too small 
             buffer[writeIndex++] = 0x16; // Add end byte
         }
@@ -751,7 +751,7 @@ public:
         return cursor == buffer.begin();
     }
 
-    BufferPrinter& print(i64 x, u8 minLeadingDigits= 0, i8 decimalPointPosition= 0) {
+    BufferPrinter& print(i64 x, u8 minLeadingDigits = 0, i8 decimalPointPosition = 0) {
         if (x < 0) {
             if (!push('-')) {
                 return *this;
@@ -763,7 +763,7 @@ public:
         return *this;
     }
 
-    BufferPrinter& printUnsigned(u64 x, u8 minLeadingDigits = 0, i8 decimalPointPosition= 0) {
+    BufferPrinter& printUnsigned(u64 x, u8 minLeadingDigits = 0, i8 decimalPointPosition = 0) {
         auto preDecimalDigits = decimalPointPosition;
 
         if (!x) {
@@ -851,7 +851,7 @@ public:
     }
 
     BufferPrinter& print(const char* str) {
-        assert( str ); // Cannot print empty string
+        assert(str); // Cannot print empty string
         auto len = strlen(str);
         if (cursor + len >= buffer.end()) {
             len = (buffer.end() - cursor) - 1;
@@ -873,7 +873,7 @@ public:
 
 protected:
     bool push(u8 c) {
-        if (cursor >= buffer.end()-1) { // Leave space for '\0'
+        if (cursor >= buffer.end() - 1) { // Leave space for '\0'
             return false;
         }
 
@@ -937,8 +937,8 @@ public:
     }
 
 protected:
-    virtual void appendField(const CosemTimestamp&)= 0;
-    virtual void appendField(const CosemScaledValue&)= 0;
+    virtual void appendField(const CosemTimestamp&) = 0;
+    virtual void appendField(const CosemScaledValue&) = 0;
     virtual void appendField(const CosemMeterNumber&) = 0;
     virtual void endFieldTransmission() = 0;
 };
@@ -947,7 +947,7 @@ protected:
 class SettingsField {
 public:
     enum Type : u8 {
-        WifiSSID= 0,
+        WifiSSID = 0,
         WifiPassword,
         MqttBrokerAddress,
         MqttBrokerPort,
@@ -994,7 +994,7 @@ public:
     }
 
     static u32 requiredStorage() {
-        u32 len= 0;
+        u32 len = 0;
         for (u32 i = 0; i != NumberOfFields; i++) {
             len += fields[i].maxLength;
         }
@@ -1037,7 +1037,7 @@ public:
         assert(buffer.length() >= field.maxLength());
         auto offset = field.calcOffset();
         auto maxLength = field.maxLength();
-        
+
         for (u32 idx = 0; idx < maxLength; idx++) {
             u8 c = eeprom[offset + idx];
             buffer[idx] = c;
@@ -1046,11 +1046,11 @@ public:
             }
         }
 
-        buffer[maxLength-1] = '\0';
+        buffer[maxLength - 1] = '\0';
     }
 
     void getBytes(SettingsField field, Buffer& buffer) {
-        assert(buffer.length() >= (field.maxLength()-1)/2); // Ignore the null termination byte and convert nibble count to byte count
+        assert(buffer.length() >= (field.maxLength() - 1) / 2); // Ignore the null termination byte and convert nibble count to byte count
 
         auto offset = field.calcOffset();
         buffer.parseHex(eeprom, field.maxLength() - 1, field.maxLength() - 1, offset);
@@ -1081,7 +1081,7 @@ public:
     void printConfiguration(U& stream) {
         SettingsField::forEach([&](SettingsField field) {
             switch (field.enumType()) {
-            // Hide password fields
+                // Hide password fields
             case SettingsField::WifiPassword:
             case SettingsField::MqttBrokerPassword:
             case SettingsField::DslmCosemDecryptionKey:
@@ -1092,7 +1092,7 @@ public:
                 stream << "* " << field.name() << ": " << buffer.charBegin() << '\n';
                 break;
             }
-        });
+            });
     }
 
 
@@ -1117,10 +1117,10 @@ private:
 
 class MBusLinkFrame {
 public:
-    enum class Type : u8 {SingleChar, Short, Control, Long};
+    enum class Type : u8 { SingleChar, Short, Control, Long };
 
     MBusLinkFrame(Type type, u8 c = 0, u8 a = 0, u8 l = 0, Buffer p = { nullptr, 0 })
-        : frameType( type ), cField( c ), aField( a ), lField( l ), payloadBuffer( p ) {}
+        : frameType(type), cField(c), aField(a), lField(l), payloadBuffer(p) {}
 
     template<typename T>
     static ErrorOr<MBusLinkFrame> decodeBuffer(SerialBufferReader<T>& reader) {
@@ -1137,7 +1137,7 @@ public:
             auto cField = reader.nextU8();
             auto aField = reader.nextU8();
             auto checksumField = reader.nextU8();
-            TRY(reader.assertU8( 0x16 ));
+            TRY(reader.assertU8(0x16));
 
             if (((cField + aField) & 0xFF) != checksumField) {
                 return Error{ "Checksum missmatch" };
@@ -1188,12 +1188,12 @@ class MBusTransportFrame {
 public:
 
     MBusTransportFrame(u8 c, Buffer p)
-        : ciField(c), payloadBuffer( p ) {}
+        : ciField(c), payloadBuffer(p) {}
 
     static ErrorOr<MBusTransportFrame> fromLinkFrame(const MBusLinkFrame& frame) {
         BufferReader reader{ frame.payload() };
 
-        auto ciField= reader.nextU8();
+        auto ciField = reader.nextU8();
         if (ciField & 0xE0) {
             return Error{ "Did not expect a separate mbus header" };
         }
@@ -1234,7 +1234,7 @@ public:
                 return Error{ "Expected long link frame" };
             }
 
-            TRYGET( transportFrame, MBusTransportFrame::fromLinkFrame(linkFrame) );
+            TRYGET(transportFrame, MBusTransportFrame::fromLinkFrame(linkFrame));
             appDataBuffer.insertAt(transportFrame.payload(), appDataBufferPos);
             appDataBufferPos += transportFrame.payload().length();
 
@@ -1393,13 +1393,13 @@ public:
     bool isOctetString() const { return type == Type::OctetString; }
     bool isEnum() const { return type == Type::Enum; }
     bool isInteger() const {
-        return type == Type::I8 || type == Type::I16 || type == Type::I32 || type == Type::I64 || 
+        return type == Type::I8 || type == Type::I16 || type == Type::I32 || type == Type::I64 ||
             type == Type::U8 || type == Type::U16 || type == Type::U32 || type == Type::U64;
     }
 
     class Iterator {
     public:
-        explicit Iterator(const DlmsStructureNode* node= nullptr) : ptr( node ) {}
+        explicit Iterator(const DlmsStructureNode* node = nullptr) : ptr(node) {}
 
         const DlmsStructureNode& get() { assert(ptr); return *ptr; }
         const DlmsStructureNode& operator*() { assert(ptr); return *ptr; }
@@ -1478,7 +1478,7 @@ private:
         } childrenList;             // Structure
         Buffer buffer;              // OctetString
         u64 value;                  // Integer, Enum
-    } content{.value= 0};
+    } content{ .value = 0 };
 
     Type type{ Type::None };
     DlmsStructureNode* next{ nullptr };
@@ -1533,7 +1533,7 @@ private:
 class DlmsReader {
 public:
     explicit DlmsReader(const Buffer& buffer)
-        : reader( buffer ) {}
+        : reader(buffer) {}
 
     void skipHeader() {
         reader.skip(6 + 12); // 6 unknown byte + 1 full timestamp
@@ -1565,10 +1565,10 @@ public:
         auto* node = allocator.allocate()->asStructure();
 
         // Could this be a multi-byte value for structures containing more than 256 items?
-        auto itemCount= reader.nextU8();
+        auto itemCount = reader.nextU8();
         while (itemCount--) {
             TRYGET(childNode, readNext(allocator));
-            node->append( childNode );
+            node->append(childNode);
         }
 
         return node;
@@ -1614,7 +1614,7 @@ public:
         TRY(reader.assertU8(0x16));
 
         //debugOut << "found enum " << (int)reader.peakU8() << std::endl;
-        return allocator.allocate()->asEnum( reader.nextU8() );
+        return allocator.allocate()->asEnum(reader.nextU8());
     }
 
 private:
@@ -1707,11 +1707,11 @@ public:
         assert(it->isOctetString());
         auto type = CosemDataField::fromCosemId(it->stringBuffer());
         if (!type) { return {}; }
-        
+
         ++it;
         if (it.isEnd() || !it->isInteger()) { return {}; }
         auto value = (i32)it->u64Value(); // FIXME: This cast is probably bad
-        
+
         ++it;
         if (it.isEnd() || !it->isStructure()) { return {}; }
         auto innerIt = it->begin();
@@ -1720,7 +1720,7 @@ public:
 
         ++innerIt;
         if (innerIt.isEnd() || !innerIt->isEnum()) { return {}; }
-        auto unit= innerIt->enumValue();
+        auto unit = innerIt->enumValue();
 
         return { type.value(), value, scale, unit };
     }
@@ -1755,8 +1755,8 @@ class CosemTimestamp {
 public:
     CosemTimestamp() = default;
 
-    CosemTimestamp(u16 y, u8 m, u8 d, u8 w, u8 h, u8 mm, u8 s, i16 tz )
-        : year{ y }, month{ m }, day{ d }, weekday{ w }, hours{ h }, minutes{ mm }, seconds{ s }, timezoneOffsetMinutes{tz} {}
+    CosemTimestamp(u16 y, u8 m, u8 d, u8 w, u8 h, u8 mm, u8 s, i16 tz)
+        : year{ y }, month{ m }, day{ d }, weekday{ w }, hours{ h }, minutes{ mm }, seconds{ s }, timezoneOffsetMinutes{ tz } {}
 
     static ErrorOr<CosemTimestamp> decodeBuffer(const Buffer& buffer) {
         BufferReader reader{ buffer };
@@ -1873,9 +1873,9 @@ public:
                 continue;
             }
 
-            auto scaledValue= CosemScaledValue::fromStructureNodes( it );
+            auto scaledValue = CosemScaledValue::fromStructureNodes(it);
             if (scaledValue) {
-                cosemData.addField( scaledValue.value() );
+                cosemData.addField(scaledValue.value());
             }
         }
 
@@ -1929,7 +1929,7 @@ public:
 
         strncpy(username, user, 21);
         username[20] = '\0';
-        
+
         strncpy(password, pwd, 21);
         password[20] = '\0';
 
@@ -2100,7 +2100,7 @@ public:
     void begin(u32, u32) { didBegin = true; }
     void end() { didBegin = false; }
     void setTimeout(u32) {}
-    
+
     u32 available() {
         return 0;
     }
@@ -2153,7 +2153,7 @@ public:
         maxBytesToRead = limitBytesToRead(maxBytesToRead);
         for (u32 i = 0; i != maxBytesToRead; i++) {
             u8 byte = buffer.at(index++);
-            if( byte == (u8)terminator ) {
+            if (byte == (u8)terminator) {
                 return i;
             }
 
@@ -2249,11 +2249,11 @@ public:
             auto offset = field.calcOffset();
             memcpy((char*)buffer.begin() + offset, entries[field.enumType()], field.maxLength());
             std::cout << "EEPROM - Inserting field '" << field.name() << "' at offset " << offset << std::endl;
-        });
+            });
 
         auto len = SettingsField::requiredStorage();
-        u8 checksum= 0;
-        for (u32 i = 0; i < len; i++ ) {
+        u8 checksum = 0;
+        for (u32 i = 0; i < len; i++) {
             checksum += buffer.at(i);
         }
         buffer[len] = goodChecksum ? checksum : checksum + 1; // Deliberatly set a bad checksum
@@ -2329,7 +2329,7 @@ auto serialDataFrame = Buffer::fromHexString(
     "38C96F0E38BF83D98316"
 );
 
-const char* eepromInitData[]= {
+const char* eepromInitData[] = {
     "some-wifi",         // WifiSSID
     "a-secure-password", // WifiPassword
     "192.168.1.1",       // MqttBrokerAddress
@@ -2342,7 +2342,7 @@ const char* eepromInitData[]= {
     "36C66639E48A8CA4D6BC8B282A793BBB" // DslmCosemDecryptionKey (example provided by EVN)
 };
 
-DummyEEPROM EEPROM{ eepromInitData, true };
+DummyEEPROM EEPROM{ eepromInitData, false };
 
 DummySerial Serial{ NoStl::move(serialDataFrame.value()) };
 DummyWifi WiFi;
@@ -2389,7 +2389,7 @@ u32 readSerialLine(Buffer& buffer) {
         }
 
         Serial.write(c);
-        buffer[index++]= c;
+        buffer[index++] = c;
     }
 
     buffer[index] = '\0';
@@ -2403,7 +2403,7 @@ void connectToWifi() {
     Settings.getCString(SettingsField::WifiSSID, ssid);
     Settings.getCString(SettingsField::WifiPassword, password);
     WiFi.begin(ssid.charBegin(), password.charBegin());
-    
+
     Serial.print("Connecting to WiFi");
     while (WiFi.status() != WL_CONNECTED) {
         delay(500);
@@ -2516,32 +2516,33 @@ void setup() {
     EEPROM.begin(1024);
 
     bool showSetup = false;
-    auto settingsError= Settings.begin();
+    auto settingsError = Settings.begin();
     if (settingsError.isError()) {
         Serial.println("EEPROM checksum missmatch. The stored settings are likely broken. Entering setup...");
         showSetup = true;
 
-    } else {
+    }
+    else {
         Serial.println("\nPress s for setup. Waiting for 10s...");
         flushSerial();
 
         char input;
         Serial.setTimeout(10000);
         Serial.readBytes(&input, 1);  // Read bytes respects the time out
-        bool showSetup= input == 's';
+        bool showSetup = input == 's';
     }
-    
+
     if (showSetup) {
         runSetupWizard();
     }
 
     SerialStream serialStream{ Serial };
-    Settings.printConfiguration( serialStream );
+    Settings.printConfiguration(serialStream);
 
     delay(2000);
     Serial.end();
     delay(1000);
-    
+
     // Setup serial connection for Mbus communication
     Serial.begin(2400, SERIAL_8E1);
     Serial.setTimeout(30000);
