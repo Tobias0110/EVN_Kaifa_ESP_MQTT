@@ -746,6 +746,10 @@ public:
         cursor = buffer.begin();
     }
 
+    bool isEmpty() const {
+        return cursor == buffer.begin();
+    }
+
     BufferPrinter& print(i64 x, u8 minLeadingDigits= 0, i8 decimalPointPosition= 0) {
         if (x < 0) {
             if (!push('-')) {
@@ -866,7 +870,7 @@ public:
         return (const char*)buffer.begin();
     }
 
-private:
+protected:
     bool push(u8 c) {
         if (cursor >= buffer.end()-1) { // Leave space for '\0'
             return false;
