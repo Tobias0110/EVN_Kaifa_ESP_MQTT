@@ -322,11 +322,11 @@ SerialStream<decltype(Serial)> debugSerialStream{ Serial };
 #define debugEndl '\n'
 
 void handleAssertionFailure(u32 lineNumber) {
-  debugOut << "\n\nAssertion failed on " << lineNumber << debugEndl;
-  Serial.flush();
+    debugOut << "\n\nAssertion failed on " << lineNumber << debugEndl;
+    Serial.flush();
 
-  // Halt the system
-  while(true) {}
+    // Halt the system
+    while (true) {}
 }
 
 #undef assert
@@ -1095,7 +1095,7 @@ public:
 
     void save() {
         auto storageSize = SettingsField::requiredStorage();
-        eeprom[storageSize]= calcChecksum();
+        eeprom[storageSize] = calcChecksum();
 
         eeprom.commit();
     }
@@ -1111,7 +1111,7 @@ public:
             }
         }
 
-        eeprom[offset+ field.maxLength() - 1] = '\0';
+        eeprom[offset + field.maxLength() - 1] = '\0';
     }
 
     template<typename U>
@@ -2151,7 +2151,7 @@ public:
         if (!readFromBuffer) {
             char c;
             //std::cin >> c;
-            c= _getch();
+            c = _getch();
             if (c == '\r') {
                 return '\n';
             }
@@ -2286,7 +2286,7 @@ public:
             auto offset = field.calcOffset();
             memcpy((char*)buffer.begin() + offset, entries[field.enumType()], field.maxLength());
             std::cout << "[!] EEPROM - Inserting field '" << field.name() << "' at offset " << offset << std::endl;
-        });
+            });
 
         auto len = SettingsField::requiredStorage();
         u8 checksum = 0;
@@ -2458,8 +2458,10 @@ void initMqtt() {
         LocalBuffer<100> address, port;
         Settings.getCString(SettingsField::MqttBrokerAddress, address);
         Settings.getCString(SettingsField::MqttBrokerPort, port);
+        auto portNumber = atoi(port.charBegin());
+        debugOut << "Setting mqtt server at '" << address.charBegin() << "' on port '" << portNumber << "'\n";
 
-        pubsubClient.setServer(address.charBegin(), atoi(port.charBegin()));
+        pubsubClient.setServer(address.charBegin(), portNumber);
         pubsubClient.setBufferSize(1024);
     }
 
@@ -2477,13 +2479,16 @@ void initMqtt() {
         Settings.getCString(SettingsField::MqttBrokerPassword, mqttPassword);
         switch (mqttMessageMode.at(0)) {
         case '0':
+            debugOut << "Creating mqtt RAW sender" << debugEndl;
             mqttSender = new MqttRawSender<decltype(pubsubClient)>{ pubsubClient, basePath.charBegin(), mqttClient.charBegin(), mqttUser.charBegin(), mqttPassword.charBegin() };
             break;
         case '1':
+            debugOut << "Creating mqtt TOPIC sender" << debugEndl;
             mqttSender = new MqttTopicSender<decltype(pubsubClient)>{ pubsubClient, basePath.charBegin(), mqttClient.charBegin(), mqttUser.charBegin(), mqttPassword.charBegin() };
             break;
         case '2':
         default:
+            debugOut << "Creating mqtt JSON sender" << debugEndl;
             mqttSender = new MqttJsonSender<decltype(pubsubClient)>{ pubsubClient, basePath.charBegin(), mqttClient.charBegin(), mqttUser.charBegin(), mqttPassword.charBegin() };
             break;
         }
@@ -2524,7 +2529,7 @@ void runSetupWizard() {
             Settings.set(field, buffer);
             break;
         }
-    });
+        });
 
     serialStream << "Committing EEPROM...\n";
     Settings.save();
