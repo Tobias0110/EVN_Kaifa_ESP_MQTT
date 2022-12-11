@@ -2592,14 +2592,6 @@ void setup() {
     SerialStream serialStream{ Serial };
     Settings.printConfiguration(serialStream);
 
-    delay(2000);
-    Serial.end();
-    delay(1000);
-
-    // Setup serial connection for Mbus communication
-    Serial.begin(2400, SERIAL_8E1);
-    Serial.setTimeout(30000);
-
     // Heart beat LED
     pinMode(D0, OUTPUT);
 
@@ -2609,6 +2601,16 @@ void setup() {
     initMqtt();
 
     Settings.getBytes(SettingsField::DslmCosemDecryptionKey, dlmsDecryptionKey);
+
+    // Setup serial connection for Mbus communication
+    debugOut << "Switching serial connection to mbus mode" << debugEndl;
+    Serial.flush();
+    delay(2000);
+    Serial.end();
+    delay(1000);
+
+    Serial.begin(2400, SERIAL_8E1);
+    Serial.setTimeout(30000);
 }
 
 void loop() {
