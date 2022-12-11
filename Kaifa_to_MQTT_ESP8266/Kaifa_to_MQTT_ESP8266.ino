@@ -942,7 +942,7 @@ public:
     MqttSender() = default;
     virtual ~MqttSender() = default;
 
-    virtual void connect() = 0;
+    virtual ErrorOr<void> connect() = 0;
     virtual void publishRaw(const Buffer&) = 0;
 
     class FieldTransmission {
@@ -1978,11 +1978,19 @@ public:
         }
     }
 
-    virtual void connect() final {
+    virtual ErrorOr<void> connect() final {      
+        
+        u32 counter= 0;
         while (!client.connected()) {
-            client.connect(clientId, username, password);
-            delay(100);
+          client.connect(clientId, username, password);
+          if( counter++ > 300 ) {
+            return Error{"Could not connect to mqtt broker"};
+          }
+
+          delay(100);
         }
+
+        return {};
     }
 
 protected:
@@ -2557,7 +2565,7 @@ ErrorOr<void> waitForAndProcessPacket() {
     #if DEBUG_PRINTING
       cosemData.print(debugOut);
     #endif
-    mqttSender->connect();
+    TRY(mqttSender->connect());
     mqttSender->publishRaw(serialReader.allDataRead());
     cosemData.mqttPublish(*mqttSender);
 
@@ -2626,7 +2634,7 @@ void loop() {
     // Try to read a mbus packet and transmit it via mqtt
     auto error = waitForAndProcessPacket();
     if (error.isError()) {
-        debugOut << "Caught error in ::waitForAndProcessPacket: " << error.error().message() << debugEndl;
+        debugOut << "\n\nCaught error in ::waitForAndProcessPacket: " << error.error().message() << debugEndl;
 
         u8 secondsWithoutSerialData = 0;
         while ((Serial.available() > 0) || (secondsWithoutSerialData < 2)) {
