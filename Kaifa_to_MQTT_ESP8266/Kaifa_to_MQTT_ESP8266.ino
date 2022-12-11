@@ -94,28 +94,12 @@
         } \
     }
 
-#ifndef ARDUINO
 
-#define debugOut std::cout
-
-void delay(uint32_t);
-
+#ifdef _DEBUG
+#define DEBUG_PRINTING 1
 #else
-
-namespace std { constexpr int endl = 0; }
-
-struct DebugSink {
-    template<typename T>
-    const DebugSink& operator<<(const T&) const { return *this; }
-};
-
-#define debugOut DebugSink()
-
-#undef assert
-#define assert(...) do{}while(0)
-
+#define DEBUG_PRINTING 1
 #endif
-
 
 using u8 = uint8_t;
 using u16 = uint16_t;
@@ -165,6 +149,8 @@ namespace NoStl {
     template<typename> class UniquePtr;
 }
 
+template<typename>
+class SerialStream;
 class Error;
 template<typename>
 class ErrorType;
@@ -309,6 +295,72 @@ namespace NoStl {
         T* ptr{ nullptr };
     };
 }
+
+
+template<typename T>
+class SerialStream {
+public:
+    SerialStream(T& s) : serial{ s } {}
+
+    template<typename U>
+    SerialStream& operator << (const U& x) {
+        serial.print(x);
+        return *this;
+    }
+
+private:
+    T& serial;
+};
+
+#if DEBUG_PRINTING
+
+#ifdef ARDUINO
+
+SerialStream<decltype(Serial)> debugSerialStream{ Serial };
+
+#define debugOut debugSerialStream
+#define debugEndl '\n'
+
+void handleAssertionFailure(u32 lineNumber) {
+  debugOut << "\n\nAssertion failed on " << lineNumber << debugEndl;
+  Serial.flush();
+
+  // Halt the system
+  while(true) {}
+}
+
+#undef assert
+#define assert( cond ) \
+    do {\
+        if( !(cond) ) { \
+            handleAssertionFailure( __LINE__ ); \
+        } \
+    } while(0)
+
+#else
+
+#define debugOut std::cout
+#define debugEndl std::endl;
+
+void delay(uint32_t);
+
+#endif
+
+#else
+
+struct DebugSink {
+    template<typename T>
+    const DebugSink& operator<<(const T&) const { return *this; }
+};
+
+#define debugOut DebugSink()
+#define debugEndl 0;
+
+#undef assert
+#define assert(...) do{}while(0)
+
+#endif
+
 
 // Heavily inspired by SerenityOS: https://github.com/SerenityOS/serenity/blob/master/AK/Error.h
 
@@ -883,21 +935,6 @@ protected:
 
     Buffer buffer;
     u8* cursor;
-};
-
-template<typename T>
-class SerialStream final {
-public:
-    SerialStream(T& s) : serial{ s } {}
-
-    template<typename U>
-    SerialStream& operator << (const U& x) {
-        serial.print(x);
-        return *this;
-    }
-
-private:
-    T& serial;
 };
 
 class MqttSender {
@@ -1553,7 +1590,7 @@ public:
         case 0x15: return readInteger(allocator); // u64
         case 0x16: return readEnum(allocator); // Unit Enum
         default:
-            debugOut << "bad byte" << (int)reader.peakU8() << std::endl;
+            debugOut << "bad byte" << (int)reader.peakU8() << debugEndl;
             return Error{ "Unsupported dlms structure node type" };
         }
     }
@@ -1592,7 +1629,7 @@ public:
             return Error{ "Invalid dlms interger type" };
         }
 
-        //debugOut << "found integer (" << (int)intType << ") " << value << std::endl;;
+        //debugOut << "found integer (" << (int)intType << ") " << value << debugEndl;
 
         return allocator.allocate()->asInteger(nodeType, value);
     }
@@ -1613,7 +1650,7 @@ public:
     ErrorOr<DlmsStructureNode*> readEnum(DlmsNodeAllocator& allocator) {
         TRY(reader.assertU8(0x16));
 
-        //debugOut << "found enum " << (int)reader.peakU8() << std::endl;
+        //debugOut << "found enum " << (int)reader.peakU8() << debugEndl;
         return allocator.allocate()->asEnum(reader.nextU8());
     }
 
@@ -2573,7 +2610,7 @@ void loop() {
     // Try to read a mbus packet and transmit it via mqtt
     auto error = waitForAndProcessPacket();
     if (error.isError()) {
-        debugOut << "Caught error in ::waitForAndProcessPacket: " << error.error().message() << std::endl;
+        debugOut << "Caught error in ::waitForAndProcessPacket: " << error.error().message() << debugEndl;
 
         u8 secondsWithoutSerialData = 0;
         while ((Serial.available() > 0) || (secondsWithoutSerialData < 2)) {
