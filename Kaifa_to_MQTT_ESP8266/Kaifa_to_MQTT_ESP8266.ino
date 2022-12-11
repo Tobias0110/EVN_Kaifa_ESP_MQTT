@@ -2502,6 +2502,7 @@ void initMqtt() {
 }
 
 void runSetupWizard() {
+    flushSerial();
     SerialStream serialStream{ Serial };
 
     SettingsField::forEach([&](SettingsField field) {
