@@ -2164,7 +2164,9 @@ public:
     u32 readBytes(char* writePtr, u32 bytesToRead) {
         assert(didBegin);
         if (!readFromBuffer) {
-            std::cin.read((char*)writePtr, bytesToRead);
+            while (bytesToRead-- > 0) {
+                *(writePtr++) = read();
+            }
             return bytesToRead;
         }
 
@@ -2422,7 +2424,11 @@ void flushSerial() {
 u32 readSerialLine(Buffer& buffer) {
     u32 index = 0;
     while (index < buffer.length() - 1) {
-        auto c = Serial.read();
+        u8 c;
+        if( Serial.readBytes(&c, 1) != 1 ) {
+          continue;
+        }
+
         if (c == '\n') {
             break;
         }
