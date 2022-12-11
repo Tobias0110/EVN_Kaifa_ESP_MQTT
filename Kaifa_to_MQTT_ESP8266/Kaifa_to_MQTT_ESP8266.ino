@@ -2328,6 +2328,8 @@ public:
 
     void hostname(const char*) {}
 
+    const char* localIP() const { return "<dummy-ip>"; }
+
     void begin(const char* ssid, const char* pwd) {
         std::cout << "[!] WIFI ssid: '" << ssid << "' password: '" << pwd << "'\n";
     }
@@ -2379,7 +2381,7 @@ const char* eepromInitData[] = {
     "36C66639E48A8CA4D6BC8B282A793BBB" // DslmCosemDecryptionKey (example provided by EVN)
 };
 
-DummyEEPROM EEPROM{ eepromInitData, false };
+DummyEEPROM EEPROM{ eepromInitData, true };
 
 DummySerial Serial{ NoStl::move(serialDataFrame.value()) };
 DummyWifi WiFi;
@@ -2447,6 +2449,8 @@ void connectToWifi() {
         Serial.print(".");
     }
     Serial.print('\n');
+
+    debugOut << "Wifi connected to '" << ssid.charBegin() << "' " << " with IP '" << WiFi.localIP() << "'\n";
 }
 
 void initMqtt() {
@@ -2589,12 +2593,6 @@ void setup() {
 
     // Connect to WIFI
     connectToWifi();
-
-    // Show IP on Serial Port
-    // Serial.println("");
-    // Serial.println("WiFi connected");
-    // Serial.println("IP address: ");
-    // Serial.println(WiFi.localIP());
 
     initMqtt();
 
