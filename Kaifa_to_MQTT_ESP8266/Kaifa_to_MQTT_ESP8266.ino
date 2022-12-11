@@ -2546,16 +2546,20 @@ ErrorOr<void> waitForAndProcessPacket() {
     LocalBuffer<600> serialReaderBuffer, applicationDataBuffer;
     SerialBufferReader<decltype(Serial)> serialReader{ Serial, serialReaderBuffer };
 
-    TRYGET(applicationFrameOrError, DlmsApplicationFrame::decodeBuffer(serialReader, applicationDataBuffer));
+    TRYGET(applicationFrame, DlmsApplicationFrame::decodeBuffer(serialReader, applicationDataBuffer));
+    debugOut << "Received application frame\n";
 
-    applicationFrameOrError.decrypt(dlmsDecryptionKey);
+    applicationFrame.decrypt(dlmsDecryptionKey);
+    debugOut << "Received application frame\n";
 
-    TRYGET(cosemDataOrError, CosemData::fromApplicationFrame(applicationFrameOrError));
+    TRYGET(cosemData, CosemData::fromApplicationFrame(applicationFrame));
 
-    // cosemData.print(std::cout);
+    #if DEBUG_PRINTING
+      cosemData.print(debugOut);
+    #endif
     mqttSender->connect();
     mqttSender->publishRaw(serialReader.allDataRead());
-    cosemDataOrError.mqttPublish(*mqttSender);
+    cosemData.mqttPublish(*mqttSender);
 
     return {};
 }
