@@ -2581,7 +2581,7 @@ void setup() {
         char input;
         Serial.setTimeout(10000);
         Serial.readBytes(&input, 1);  // Read bytes respects the time out
-        bool showSetup = input == 's';
+        showSetup = (input == 's' || input == 'S');
     }
 
     if (showSetup) {
