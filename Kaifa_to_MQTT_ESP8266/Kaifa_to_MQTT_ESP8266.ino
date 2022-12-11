@@ -2217,12 +2217,12 @@ public:
     }
 
     void connect(const char* id, const char* user, const char* pwd) {
-        std::cout << "Mqtt-Connect as '" << id << "' '" << user << "' with password '" << pwd << "'\n";
+        std::cout << "[!] Mqtt-Connect as '" << id << "' '" << user << "' with password '" << pwd << "'\n";
         isConnected = true;
     }
 
     void publish(const char* path, const char* data, bool x) {
-        std::cout << "Mqtt-Publish '" << path << "' -> string: '" << data << "'\n";
+        std::cout << "[!] Mqtt-Publish '" << path << "' -> string: '" << data << "'\n";
     }
 
     void publish(const char* path, const u8* data, u32 length, bool x) {
@@ -2234,7 +2234,7 @@ public:
     void setBufferSize(u32) {}
 
     void setServer(const char* address, u32 port) {
-        std::cout << "Mqtt set server: " << address << " " << port << std::endl;
+        std::cout << "[!] Mqtt set server: " << address << " " << port << std::endl;
     }
 
 private:
@@ -2248,8 +2248,8 @@ public:
         SettingsField::forEach([&](SettingsField field) {
             auto offset = field.calcOffset();
             memcpy((char*)buffer.begin() + offset, entries[field.enumType()], field.maxLength());
-            std::cout << "EEPROM - Inserting field '" << field.name() << "' at offset " << offset << std::endl;
-            });
+            std::cout << "[!] EEPROM - Inserting field '" << field.name() << "' at offset " << offset << std::endl;
+        });
 
         auto len = SettingsField::requiredStorage();
         u8 checksum = 0;
@@ -2262,7 +2262,7 @@ public:
     void begin(u32 size) { didBegin = true; }
 
     void commit() {
-        std::cout << "EEPROM commit\n";
+        std::cout << "[!] EEPROM commit\n";
     }
 
     u8& operator[](u32 idx) {
@@ -2292,7 +2292,7 @@ public:
     void hostname(const char*) {}
 
     void begin(const char* ssid, const char* pwd) {
-        std::cout << "WIFI ssid: '" << ssid << "' password: '" << pwd << "'\n";
+        std::cout << "[!] WIFI ssid: '" << ssid << "' password: '" << pwd << "'\n";
     }
 
 private:
