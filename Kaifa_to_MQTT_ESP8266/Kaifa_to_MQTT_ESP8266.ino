@@ -1986,7 +1986,7 @@ public:
         }
     }
 
-    virtual ErrorOr<void> connect() final {      
+    virtual ErrorOr<void> connect() final {
         debugOut << "Connecting to mqtt broker";
         
         u32 counter= 0;
@@ -2122,7 +2122,10 @@ protected:
         printer.printChar('}');
 
         this->setEndpointName("json");
+
+        debugOut << "Sending JSON -> '" << this->path << "'" << debugEndl;
         this->client.publish(this->path, printer.cString(), false);
+        debugOut << "Sent JSON\n";
 
         init();
     }
