@@ -768,8 +768,8 @@ private:
             auto bytesWritten = serialInterface.readBytes((char*)&buffer[writeIndex], readAtLeast);
             writeIndex += bytesWritten;
             // Timeout occured before requested number of bytes could be read
-            if(bytesWritten < readAtLeast) {
-              return Error{"Could not read enough bytes from serial before timeout"};
+            if (bytesWritten < readAtLeast) {
+                return Error{ "Could not read enough bytes from serial before timeout" };
             }
         }
 
@@ -1988,17 +1988,17 @@ public:
 
     virtual ErrorOr<void> connect() final {
         debugOut << "Connecting to mqtt broker";
-        
-        u32 counter= 0;
-        while (!client.connected()) {
-          client.connect(clientId, username, password);
-          if( counter++ > 300 ) {
-            debugOut << debugEndl;
-            return Error{"Could not connect to mqtt broker"};
-          }
 
-          debugOut << '.';
-          delay(100);
+        u32 counter = 0;
+        while (!client.connected()) {
+            client.connect(clientId, username, password);
+            if (counter++ > 300) {
+                debugOut << debugEndl;
+                return Error{ "Could not connect to mqtt broker" };
+            }
+
+            debugOut << '.';
+            delay(100);
         }
 
         debugOut << debugEndl;
@@ -2587,9 +2587,9 @@ ErrorOr<void> waitForAndProcessPacket() {
 
     TRYGET(cosemData, CosemData::fromApplicationFrame(applicationFrame));
 
-    #if DEBUG_PRINTING
-      cosemData.print(debugOut);
-    #endif
+#if DEBUG_PRINTING
+    cosemData.print(debugOut);
+#endif
     TRY(mqttSender->connect());
     mqttSender->publishRaw(serialReader.allDataRead());
     cosemData.mqttPublish(*mqttSender);
