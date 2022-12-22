@@ -2184,6 +2184,10 @@ public:
         return buffer.at(index++);
     }
 
+    u32 readBytes(u8* writePtr, u32 bytesToRead) {
+        return readBytes((char*)writePtr, bytesToRead);
+    }
+
     u32 readBytes(char* writePtr, u32 bytesToRead) {
         assert(didBegin);
         if (!readFromBuffer) {
@@ -2259,6 +2263,8 @@ public:
         assert(didBegin);
         std::cout << c;
     }
+
+    void flush() {}
 
 private:
     u32 limitBytesToRead(u32 bytesToRead) const {
@@ -2452,8 +2458,8 @@ u32 readSerialLine(Buffer& buffer) {
     u32 index = 0;
     while (index < buffer.length() - 1) {
         u8 c;
-        if( Serial.readBytes(&c, 1) != 1 ) {
-          continue;
+        if (Serial.readBytes(&c, 1) != 1) {
+            continue;
         }
 
         if (c == '\n') {
