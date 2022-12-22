@@ -2630,7 +2630,7 @@ void setup() {
     delay(1000);
 
     Serial.begin(2400, SERIAL_8E1);
-    Serial.setTimeout(30000);
+    Serial.setTimeout(25000);  // Be carefull with long timeouts, as they might never expire -> timemax(): https://github.com/esp8266/Arduino/blob/master/cores/esp8266/PolledTimeout.h
 }
 
 void loop() {
