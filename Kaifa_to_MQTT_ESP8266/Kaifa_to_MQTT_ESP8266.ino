@@ -322,7 +322,7 @@ SerialStream<decltype(Serial)> debugSerialStream{ Serial };
 #define debugEndl '\n'
 
 void handleAssertionFailure(u32 lineNumber) {
-    debugOut << "\n\nAssertion failed on " << lineNumber << debugEndl;
+    debugOut << "\n\nAssertion failed on line number " << lineNumber << debugEndl;
     Serial.flush();
 
     // Halt the system
