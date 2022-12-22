@@ -1029,6 +1029,44 @@ public:
     const char* defaultValue() const { return fields[type].defaultValue; }
     const Type enumType() const { return type; }
 
+    ErrorOr<void> validate(const Buffer& buffer, u32 length) const {
+        switch (type) {
+        case MqttBrokerPort:
+            for (u32 i = 0; i != length; i++) {
+                if (buffer[i] < '0' || buffer[i] > '9') {
+                    return Error{ "Bad digit. Expected positive integer" };
+                }
+            }
+            if (atoi(buffer.charBegin()) > 65535) {
+                return Error{ "Port number greater than 65535" };
+            }
+            break;
+        case MqttMessageMode:
+            if (length > 1) {
+                return Error{"Expected single digit"};
+            }
+            if (buffer[0] != '0' && buffer[0] != '1' && buffer[0] != '2') {
+                return Error{ "Expected 0, 1 or 2" };
+            }
+            break;
+        case DslmCosemDecryptionKey:
+            if (length != 32) {
+                return Error{ "Expected 32 hex digits" };
+            }
+            for (u32 i = 0; i != 32; i++) {
+                auto c = buffer[i];
+                if (!(c >= 'a' && c <= 'f') && !(c >= 'A' && c <= 'F') && !(c >= '0' && c <= '9')) {
+                    return Error{ "Bad hex character. Expected range is [a-fA-F0-9]" };
+                }
+            }
+            break;
+        default:
+            break;
+        }
+
+        return {};
+    }
+
     template<typename T>
     static void forEach(const T& lam) {
         for (u32 i = 0; i != NumberOfFields; i++) {
@@ -2564,7 +2602,11 @@ void runSetupWizard() {
                 continue;
             }
 
-            // TODO: Validation
+            auto validationError = field.validate(buffer, length);
+            if (validationError.isError()) {
+                serialStream << "Error: The value '" << buffer.charBegin() << "' is invalid: " << validationError.error().message() << '\n';
+                continue;
+            }
 
             Settings.set(field, buffer);
             break;
