@@ -702,32 +702,32 @@ public:
         return readIndex + c <= writeIndex;
     }
 
-    u8 nextU8() {
-        ensureBytes(1);
+    ErrorOr<u8> nextU8() {
+        TRY(ensureBytes(1));
         return buffer.at(readIndex++);
     }
 
-    u8 peakU8() {
-        ensureBytes(1);
+    ErrorOr<u8> peakU8() {
+        TRY(ensureBytes(1));
         return buffer.at(readIndex);
     }
 
-    u16 nextU16() {
-        ensureBytes(2);
+    ErrorOr<u16> nextU16() {
+        TRY(ensureBytes(2));
         u16 val = readU16(buffer, readIndex);
         readIndex += 2;
         return val;
     }
 
-    u32 nextU32() {
-        ensureBytes(4);
+    ErrorOr<u32> nextU32() {
+        TRY(ensureBytes(4));
         u32 val = readU32(buffer, readIndex);
         readIndex += 4;
         return val;
     }
 
-    u64 nextU64() {
-        ensureBytes(8);
+    ErrorOr<u64> nextU64() {
+        TRY(ensureBytes(8));
         u64 val = readU64(buffer, readIndex);
         readIndex += 8;
         return val;
@@ -737,21 +737,21 @@ public:
         if (!hasNext()) {
             return Error{ "No remaining bytes to read" };
         }
-        auto actualVal = nextU8();
+        TRYGET(actualVal, nextU8());
         if (val != actualVal) {
             return Error{ "Unexpected byte" };
         }
         return {};
     }
 
-    void skip(u32 num = 1) {
-        ensureBytes(num);
+    ErrorOr<void> skip(u32 num = 1) {
+        TRY(ensureBytes(num));
         readIndex += num;
     }
 
-    Buffer slice(i32 len = 0) {
+    ErrorOr<Buffer> slice(i32 len = 0) {
         assert(len >= 0); // SerialBuffer does not support negative slice lengths
-        ensureBytes(len);
+        TRY(ensureBytes(len));
         Buffer sliced = buffer.slice(readIndex, readIndex + len);
         readIndex += len;
         return sliced;
@@ -762,12 +762,15 @@ public:
     }
 
 private:
-    void readBlock(u32 readAtLeast) {
+    ErrorOr<void> readBlock(u32 readAtLeast) {
         assert(writeIndex + readAtLeast <= buffer.length()); // Buffer is too small to read the requested number of bytes
         if (readAtLeast) {
             auto bytesWritten = serialInterface.readBytes((char*)&buffer[writeIndex], readAtLeast);
             writeIndex += bytesWritten;
-            assert(bytesWritten >= readAtLeast); // Timeout occured before requested number of bytes could be read
+            // Timeout occured before requested number of bytes could be read
+            if(bytesWritten < readAtLeast) {
+              return Error{"Could not read enough bytes from serial before timeout"};
+            }
         }
 
         // Do try to read even more if the end char was just read
@@ -776,13 +779,17 @@ private:
             assert(writeIndex < buffer.length()); // Buffer was too small 
             buffer[writeIndex++] = 0x16; // Add end byte
         }
+
+        return {};
     }
 
-    void ensureBytes(u32 num) {
+    ErrorOr<void> ensureBytes(u32 num) {
         if (!hasNext(num)) {
             auto availableBytes = writeIndex - readIndex;
-            readBlock(num - availableBytes);
+            TRY(readBlock(num - availableBytes));
         }
+
+        return {};
     }
 
     T& serialInterface;
@@ -1163,7 +1170,8 @@ public:
     static ErrorOr<MBusLinkFrame> decodeBuffer(SerialBufferReader<T>& reader) {
         Type type;
 
-        switch (reader.nextU8()) {
+        TRYGET(typeField, reader.nextU8());
+        switch (typeField) {
         case 0xe5: return { Type::SingleChar };
         case 0x10: type = Type::Short; break;
         case 0x68: type = Type::Control; break;
@@ -1171,9 +1179,9 @@ public:
         }
 
         if (type == Type::Short) {
-            auto cField = reader.nextU8();
-            auto aField = reader.nextU8();
-            auto checksumField = reader.nextU8();
+            TRYGET(cField, reader.nextU8());
+            TRYGET(aField, reader.nextU8());
+            TRYGET(checksumField, reader.nextU8());
             TRY(reader.assertU8(0x16));
 
             if (((cField + aField) & 0xFF) != checksumField) {
@@ -1183,15 +1191,15 @@ public:
             return { Type::Short, cField, aField };
         }
 
-        auto lField = reader.nextU8();
+        TRYGET(lField, reader.nextU8());
         TRY(reader.assertU8(lField));
         TRY(reader.assertU8(0x68));
 
-        auto cField = reader.nextU8();
-        auto aField = reader.nextU8();
+        TRYGET(cField, reader.nextU8());
+        TRYGET(aField, reader.nextU8());
 
-        auto userData = reader.slice(lField - 2);
-        auto checksumField = reader.nextU8();
+        TRYGET(userData, reader.slice(lField - 2));
+        TRYGET(checksumField, reader.nextU8());
         TRY(reader.assertU8(0x16));
 
         u8 checksum = cField + aField;
