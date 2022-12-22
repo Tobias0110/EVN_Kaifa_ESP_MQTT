@@ -2191,7 +2191,7 @@ public:
     u32 readBytes(char* writePtr, u32 bytesToRead) {
         assert(didBegin);
         if (!readFromBuffer) {
-            while (bytesToRead-- > 0) {
+            for (u32 i = 0; i < bytesToRead; i++) {
                 *(writePtr++) = read();
             }
             return bytesToRead;
