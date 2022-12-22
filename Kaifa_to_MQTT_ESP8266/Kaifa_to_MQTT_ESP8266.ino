@@ -2427,6 +2427,10 @@ EEPROMSettings<decltype(EEPROM)> Settings{ EEPROM };
 NoStl::UniquePtr<MqttSender> mqttSender;
 LocalBuffer<16> dlmsDecryptionKey;
 
+// The domain has to be stored globally, because the PubSubClient lib does not create
+// a copy of the string it is provided. The lifetime has to be managed by the user (us).
+LocalBuffer<21> mqttServerDomain;
+
 void flushSerial() {
     while (Serial.available()) {
         Serial.read();
@@ -2473,13 +2477,13 @@ void connectToWifi() {
 
 void initMqtt() {
     {
-        LocalBuffer<100> address, port;
-        Settings.getCString(SettingsField::MqttBrokerAddress, address);
+        LocalBuffer<20> port;
+        Settings.getCString(SettingsField::MqttBrokerAddress, mqttServerDomain);
         Settings.getCString(SettingsField::MqttBrokerPort, port);
         auto portNumber = atoi(port.charBegin());
-        debugOut << "Setting mqtt server at '" << address.charBegin() << "' on port '" << portNumber << "'\n";
+        debugOut << "Setting mqtt server at '" << mqttServerDomain.charBegin() << "' on port '" << portNumber << "'\n";
 
-        pubsubClient.setServer(address.charBegin(), portNumber);
+        pubsubClient.setServer(mqttServerDomain.charBegin(), portNumber);
         pubsubClient.setBufferSize(1024);
     }
 
