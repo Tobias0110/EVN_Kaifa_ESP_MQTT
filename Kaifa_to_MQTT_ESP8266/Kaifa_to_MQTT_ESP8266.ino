@@ -1029,6 +1029,17 @@ public:
     const char* defaultValue() const { return fields[type].defaultValue; }
     const Type enumType() const { return type; }
 
+    bool isSecure() const {
+        switch (type) {
+        case WifiPassword:
+        case MqttBrokerPassword:
+        case DslmCosemDecryptionKey:
+            return true;
+        default:
+            return false;
+        }
+    }
+
     ErrorOr<void> validate(const Buffer& buffer, u32 length) const {
         switch (type) {
         case MqttBrokerPort:
@@ -1162,19 +1173,22 @@ public:
     template<typename U>
     void printConfiguration(U& stream) {
         SettingsField::forEach([&](SettingsField field) {
-            switch (field.enumType()) {
-                // Hide password fields
-            case SettingsField::WifiPassword:
-            case SettingsField::MqttBrokerPassword:
-            case SettingsField::DslmCosemDecryptionKey:
-                break;
-            default:
+            // Hide password fields
+            if (!field.isSecure()) {
                 LocalBuffer<110> buffer;
                 getCString(field, buffer);
                 stream << "* " << field.name() << ": " << buffer.charBegin() << '\n';
-                break;
             }
-            });
+        });
+    }
+
+    void erase() {
+        auto storageSize = SettingsField::requiredStorage();
+        for (u32 i = 0; i != storageSize; i++) {
+            eeprom[i]= 0;
+        }
+        eeprom[storageSize] = 0xff; // Set bad checksum
+        eeprom.commit();
     }
 
 
@@ -2572,31 +2586,46 @@ void initMqtt() {
     }
 }
 
-void runSetupWizard() {
+void runSetupWizard(bool oldDataIsValid) {
     flushSerial();
     SerialStream serialStream{ Serial };
 
     SettingsField::forEach([&](SettingsField field) {
         while (true) {
             serialStream << "Enter value for '" << field.name() << '\'';
-            if (field.defaultValue()) {
-                serialStream << " or just press enter to confirm default value (" << field.defaultValue() << ')';
+
+            // Try to get a default value
+            LocalBuffer<150> oldValueBuffer;
+            const char* defaultValue = nullptr;
+            if (oldDataIsValid) {
+                Settings.getCString(field, oldValueBuffer);
+                defaultValue = oldValueBuffer.charBegin();
+                auto shownValue = field.isSecure() ? "<hidden-value>" : defaultValue;
+                serialStream << " or just press enter to confirm old value (" << shownValue << ") ";
+
+            } else if (field.defaultValue()) {
+                defaultValue = field.defaultValue();
+                serialStream << " or just press enter to confirm default value (" << defaultValue << ") ";
             }
             serialStream << "\n(up to " << field.maxLength() - 1 << " chars) ";
 
+            // Read user input
             LocalBuffer<150> buffer;
             auto length = readSerialLine(buffer);
             serialStream << '\n';
 
+            // Accept default value if the user only hit return
             if (!length) {
-                if (!field.defaultValue()) {
+                if (!defaultValue) {
                     serialStream << "Error: Did not enter a value.\n";
                     continue;
                 }
 
-                strncpy((char*)buffer.begin(), field.defaultValue(), 150);
+                strncpy((char*)buffer.begin(), defaultValue, 150);
+                length = strnlen(buffer.charBegin(), 150);
             }
 
+            // Validation
             if (length > field.maxLength() - 1) {
                 serialStream << "Error: The value '" << buffer.charBegin() << "' is too long. (" << length << " bytes)\n";
                 continue;
@@ -2648,24 +2677,43 @@ void setup() {
     EEPROM.begin(1024);
 
     bool showSetup = false;
+    bool settingsDataIsValid = true;
     auto settingsError = Settings.begin();
     if (settingsError.isError()) {
         Serial.println("EEPROM checksum missmatch. The stored settings are likely broken. Entering setup...");
         showSetup = true;
+        settingsDataIsValid = false;
 
     }
     else {
-        Serial.println("\nPress s for setup. Waiting for 10s...");
+        Serial.println("\nPress 's' for setup.");
+        Serial.println("Press 'c' too clear all stored settings. Waiting for 10s...");
         flushSerial();
 
         char input;
         Serial.setTimeout(10000);
         Serial.readBytes(&input, 1);  // Read bytes respects the time out
-        showSetup = (input == 's' || input == 'S');
+
+        switch (input) {
+        case 's':
+        case 'S':
+            showSetup = true;
+            break;
+        case 'c':
+        case 'C':
+            Serial.println("\nAre you sure, that you want to erase the current settings? (y/N)");
+            Serial.readBytes(&input, 1);
+            if (input == 'y' || input == 'Y') {
+                Serial.println("\nErasing EEPROM...");
+                Settings.erase();
+                showSetup = true;
+                settingsDataIsValid = false;
+            }
+        }
     }
 
     if (showSetup) {
-        runSetupWizard();
+        runSetupWizard(settingsDataIsValid);
     }
 
     SerialStream serialStream{ Serial };
