@@ -1,5 +1,5 @@
 /**
-* ESP8266 based power meter M-Bus to mqtt gateway
+* ESP8266 based power meter M-Bus to mqtt gateway v2.0
 * - Tobias Ecker OE3TEC 2022
 * - Matthias Preymann PreyMa 2022
 *
@@ -2733,7 +2733,7 @@ ErrorOr<void> waitForAndProcessPacket() {
 void setup() {
     Serial.begin(115200, SERIAL_8N1);
 
-    Serial.println("Starting smart meter mqtt gateway v1.1");
+    Serial.println("Starting smart meter mqtt gateway v2.0");
     Serial.println("Initializing...");
 
     EEPROM.begin(1024);
