@@ -1057,14 +1057,21 @@ public:
     }
 
     ErrorOr<void> validate(const Buffer& buffer, u32 length) const {
-        auto validateHexString = [](const Buffer& buffer) -> ErrorOr<void> {
-            for (u32 i = 0; i != 32; i++) {
+        auto validateHexString = [&buffer, &length]() -> ErrorOr<void> {
+            for (u32 i = 0; i != length; i++) {
                 auto c = buffer[i];
                 if (!(c >= 'a' && c <= 'f') && !(c >= 'A' && c <= 'F') && !(c >= '0' && c <= '9')) {
                     return Error{ "Bad hex character. Expected range is [a-fA-F0-9]" };
                 }
             }
 
+            return {};
+        };
+
+        auto validateLength = [&buffer, &length](u32 len) -> ErrorOr<void> {
+            if (length != len) {
+                return Error{ "" };
+            }
             return {};
         };
 
@@ -1080,26 +1087,19 @@ public:
             }
             break;
         case MqttMessageMode:
-            if (length > 1) {
-                return Error{"Expected single digit"};
-            }
+            RETHROW(validateLength(1), "Expected 1 digit");
             if (buffer[0] != '0' && buffer[0] != '1' && buffer[0] != '2') {
                 return Error{ "Expected 0, 1 or 2" };
             }
             break;
         case DslmCosemDecryptionKey:
-            if (length != 32) {
-                return Error{ "Expected 32 hex digits" };
-            }
-            TRY(validateHexString(buffer));
+            RETHROW(validateLength(32), "Expected 32 hex digits");
+            TRY(validateHexString());
             break;
         case MqttCertificateFingerprint:
             if (strncmp(buffer.charBegin(), "[insecure]", buffer.length())) {
-                if (length != 40) {
-                    return Error{ "Expected 40 hex digits" };
-                }
-
-                TRY(validateHexString(buffer));
+                RETHROW(validateLength(40), "Expected 40 hex digits");
+                TRY(validateHexString());
             }
             break;
         default:
