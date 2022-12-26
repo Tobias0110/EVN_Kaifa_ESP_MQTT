@@ -334,10 +334,10 @@ private:
 SerialStream<decltype(Serial)> debugSerialStream{ Serial };
 
 #define debugOut debugSerialStream
-#define debugEndl '\n'
+#define debugEndl "\r\n"
 
 void handleAssertionFailure(u32 lineNumber) {
-    debugOut << "\n\nAssertion failed on line number " << lineNumber << debugEndl;
+    debugOut << "\r\n\r\nAssertion failed on line number " << lineNumber << debugEndl;
     Serial.flush();
 
     // Halt the system
@@ -449,12 +449,12 @@ public:
             stream << c[ptr[i] >> 4] << c[ptr[i] & 0xF] << ' ';
 
             if ((i + 1) % 16 == 0) {
-                stream << '\n';
+                stream << "\r\n";
             }
         }
 
         if (byteCount % 16) {
-            stream << '\n';
+            stream << "\r\n";
         }
     }
 
@@ -1194,7 +1194,7 @@ public:
             if (!field.isSecure()) {
                 LocalBuffer<110> buffer;
                 getCString(field, buffer);
-                stream << "* " << field.name() << ": " << buffer.charBegin() << '\n';
+                stream << "* " << field.name() << ": " << buffer.charBegin() << "\r\n";
             }
         });
     }
@@ -1549,22 +1549,22 @@ private:
 
         bool doIndent;
         switch (type) {
-        case Type::None: stream << "<Empty>\n"; break;
-        case Type::Enum: stream << "Enum: " << (int)(u8)content.value << '\n'; break;
-        case Type::U8: stream << "u8: " << (int)(u8)content.value << '\n'; break;
-        case Type::U16: stream << "u16: " << (u16)content.value << '\n'; break;
-        case Type::U32: stream << "u32: " << (u32)content.value << '\n'; break;
-        case Type::U64: stream << "u64: " << (u64)content.value << '\n'; break;
-        case Type::I8: stream << "i8: " << (int)(i8)content.value << '\n'; break;
-        case Type::I16: stream << "i16: " << (i16)content.value << '\n'; break;
-        case Type::I32: stream << "i32: " << (i32)content.value << '\n'; break;
-        case Type::I64: stream << "i64: " << (i64)content.value << '\n'; break;
+        case Type::None: stream << "<Empty>\r\n"; break;
+        case Type::Enum: stream << "Enum: " << (int)(u8)content.value << "\r\n"; break;
+        case Type::U8: stream << "u8: " << (int)(u8)content.value << "\r\n"; break;
+        case Type::U16: stream << "u16: " << (u16)content.value << "\r\n"; break;
+        case Type::U32: stream << "u32: " << (u32)content.value << "\r\n"; break;
+        case Type::U64: stream << "u64: " << (u64)content.value << "\r\n"; break;
+        case Type::I8: stream << "i8: " << (int)(i8)content.value << "\r\n"; break;
+        case Type::I16: stream << "i16: " << (i16)content.value << "\r\n"; break;
+        case Type::I32: stream << "i32: " << (i32)content.value << "\r\n"; break;
+        case Type::I64: stream << "i64: " << (i64)content.value << "\r\n"; break;
         case Type::OctetString:
             stream << "OctetString [" << content.buffer.length() << "]: ";
             content.buffer.printHex(stream);
             break;
         case Type::Structure:
-            stream << "Structure: \n";
+            stream << "Structure: \r\n";
             doIndent = currentIndent < maxIndent;
             if (doIndent) {
                 indentString[currentIndent * 2 + 0] = ' ';
@@ -1673,7 +1673,7 @@ public:
     }
 
     ErrorOr<DlmsStructureNode*> readStructure(DlmsNodeAllocator& allocator) {
-        // debugOut << "found struct\n";
+        // debugOut << "found struct" << debugEndl;
         TRY(reader.assertU8(0x02));
 
         auto* node = allocator.allocate()->asStructure();
@@ -1718,7 +1718,7 @@ public:
         auto length = reader.nextU8();
         auto string = reader.slice(length);
 
-        //debugOut << "found string\n";
+        //debugOut << "found string" << debugEndl;
         //string.printHex(std::cout);
 
         return allocator.allocate()->asOctetString(string);
@@ -1847,7 +1847,7 @@ public:
             stream << " x10^" << (int)scale;
         }
 
-        stream << " [" << (int)unit << "]\n";
+        stream << " [" << (int)unit << "]\r\n";
     }
 
     const CosemDataField& fieldLabel() const {
@@ -1896,7 +1896,7 @@ public:
         i16 offsetMinutes = timezoneOffsetMinutes % 60;
 
         stream << (int)day << '.' << (int)month << '.' << year << ' ';
-        stream << (int)hours << ':' << (int)minutes << ':' << (int)seconds << " (+/- " << offsetHours << ':' << offsetMinutes << ")\n";
+        stream << (int)hours << ':' << (int)minutes << ':' << (int)seconds << " (+/- " << offsetHours << ':' << offsetMinutes << ")\r\n";
     }
 
     void serialize(BufferPrinter& printer) const {
@@ -1998,7 +1998,7 @@ public:
 
     template<typename T>
     void print(T& stream) const {
-        stream << "Meter Number: " << meterNumber.cString() << '\n';
+        stream << "Meter Number: " << meterNumber.cString() << "\r\n";
         stream << "Timestamp: ";
         timestamp.print(stream);
 
@@ -2194,7 +2194,7 @@ protected:
 
         debugOut << "Sending JSON -> '" << this->path << "'" << debugEndl;
         this->client.publish(this->path, printer.cString(), false);
-        debugOut << "Sent JSON\n";
+        debugOut << "Sent JSON\r\n";
 
         init();
     }
@@ -2359,16 +2359,16 @@ public:
     }
 
     void connect(const char* id, const char* user, const char* pwd) {
-        std::cout << "[!] Mqtt-Connect as '" << id << "' '" << user << "' with password '" << pwd << "'\n";
+        std::cout << "[!] Mqtt-Connect as '" << id << "' '" << user << "' with password '" << pwd << "'\r\n";
         isConnected = true;
     }
 
     void publish(const char* path, const char* data, bool x) {
-        std::cout << "[!] Mqtt-Publish '" << path << "' -> string: '" << data << "'\n";
+        std::cout << "[!] Mqtt-Publish '" << path << "' -> string: '" << data << "'\r\n";
     }
 
     void publish(const char* path, const u8* data, u32 length, bool x) {
-        std::cout << "Mqtt-Publish '" << path << "' -> buffer: \n";
+        std::cout << "Mqtt-Publish '" << path << "' -> buffer: \r\n";
         Buffer buffer{ const_cast<u8*>(data), length }; // Ugly const cast
         buffer.printHex(std::cout);
     }
@@ -2406,7 +2406,7 @@ public:
     void begin(u32 size) { didBegin = true; }
 
     void commit() {
-        std::cout << "[!] EEPROM commit\n";
+        std::cout << "[!] EEPROM commit\r\n";
     }
 
     u8& operator[](u32 idx) {
@@ -2438,7 +2438,7 @@ public:
     const char* localIP() const { return "<dummy-ip>"; }
 
     void begin(const char* ssid, const char* pwd) {
-        std::cout << "[!] WIFI ssid: '" << ssid << "' password: '" << pwd << "'\n";
+        std::cout << "[!] WIFI ssid: '" << ssid << "' password: '" << pwd << "'\r\n";
     }
 
 private:
@@ -2568,9 +2568,9 @@ void connectToWifi() {
         delay(500);
         Serial.print(".");
     }
-    Serial.print('\n');
+    Serial.print("\r\n");
 
-    debugOut << "Wifi connected to '" << ssid.charBegin() << "' " << " with IP '" << WiFi.localIP() << "'\n";
+    debugOut << "Wifi connected to '" << ssid.charBegin() << "' " << " with IP '" << WiFi.localIP() << "'\r\n";
 }
 
 void initMqtt() {
@@ -2597,7 +2597,7 @@ void initMqtt() {
         Settings.getCString(SettingsField::MqttBrokerAddress, mqttServerDomain);
         Settings.getCString(SettingsField::MqttBrokerPort, port);
         auto portNumber = atoi(port.charBegin());
-        debugOut << "Setting mqtt server at '" << mqttServerDomain.charBegin() << "' on port '" << portNumber << "'\n";
+        debugOut << "Setting mqtt server at '" << mqttServerDomain.charBegin() << "' on port '" << portNumber << "'\r\n";
 
         pubsubClient.setServer(mqttServerDomain.charBegin(), portNumber);
         pubsubClient.setBufferSize(1024);
@@ -2654,17 +2654,17 @@ void runSetupWizard(bool oldDataIsValid) {
                 defaultValue = field.defaultValue();
                 serialStream << " or just press enter to confirm default value (" << defaultValue << ") ";
             }
-            serialStream << "\n(up to " << field.maxLength() - 1 << " chars) ";
+            serialStream << "\r\n(up to " << field.maxLength() - 1 << " chars) ";
 
             // Read user input
             LocalBuffer<150> buffer;
             auto length = readSerialLine(buffer);
-            serialStream << '\n';
+            serialStream << "\r\n";
 
             // Accept default value if the user only hit return
             if (!length) {
                 if (!defaultValue) {
-                    serialStream << "Error: Did not enter a value.\n";
+                    serialStream << "Error: Did not enter a value.\r\n";
                     continue;
                 }
 
@@ -2674,13 +2674,13 @@ void runSetupWizard(bool oldDataIsValid) {
 
             // Validation
             if (length > field.maxLength() - 1) {
-                serialStream << "Error: The value '" << buffer.charBegin() << "' is too long. (" << length << " bytes)\n";
+                serialStream << "Error: The value '" << buffer.charBegin() << "' is too long. (" << length << " bytes)\r\n";
                 continue;
             }
 
             auto validationError = field.validate(buffer, length);
             if (validationError.isError()) {
-                serialStream << "Error: The value '" << buffer.charBegin() << "' is invalid: " << validationError.error().message() << '\n';
+                serialStream << "Error: The value '" << buffer.charBegin() << "' is invalid: " << validationError.error().message() << "\r\n";
                 continue;
             }
 
@@ -2689,7 +2689,7 @@ void runSetupWizard(bool oldDataIsValid) {
         }
         });
 
-    serialStream << "Committing EEPROM...\n";
+    serialStream << "Committing EEPROM...\r\n";
     Settings.save();
 }
 
@@ -2698,10 +2698,10 @@ ErrorOr<void> waitForAndProcessPacket() {
     SerialBufferReader<decltype(Serial)> serialReader{ Serial, serialReaderBuffer };
 
     TRYGET(applicationFrame, DlmsApplicationFrame::decodeBuffer(serialReader, applicationDataBuffer));
-    debugOut << "Received application frame\n";
+    debugOut << "Received application frame\r\n";
 
     applicationFrame.decrypt(dlmsDecryptionKey);
-    debugOut << "Received application frame\n";
+    debugOut << "Received application frame\r\n";
 
     TRYGET(cosemData, CosemData::fromApplicationFrame(applicationFrame));
 
@@ -2733,7 +2733,7 @@ void setup() {
 
     }
     else {
-        Serial.println("\nPress 's' for setup.");
+        Serial.println("\r\nPress 's' for setup.");
         Serial.println("Press 'c' too clear all stored settings. Waiting for 10s...");
         flushSerial();
 
@@ -2748,10 +2748,10 @@ void setup() {
             break;
         case 'c':
         case 'C':
-            Serial.println("\nAre you sure, that you want to erase the current settings? (y/N)");
+            Serial.println("\r\nAre you sure, that you want to erase the current settings? (y/N)");
             Serial.readBytes(&input, 1);
             if (input == 'y' || input == 'Y') {
-                Serial.println("\nErasing EEPROM...");
+                Serial.println("\r\nErasing EEPROM...");
                 Settings.erase();
                 showSetup = true;
                 settingsDataIsValid = false;
@@ -2796,7 +2796,7 @@ void loop() {
     // Try to read a mbus packet and transmit it via mqtt
     auto error = waitForAndProcessPacket();
     if (error.isError()) {
-        debugOut << "\n\nCaught error in ::waitForAndProcessPacket: " << error.error().message() << debugEndl;
+        debugOut << "\r\n\r\nCaught error in ::waitForAndProcessPacket: " << error.error().message() << debugEndl;
 
         u8 secondsWithoutSerialData = 0;
         while ((Serial.available() > 0) || (secondsWithoutSerialData < 2)) {
