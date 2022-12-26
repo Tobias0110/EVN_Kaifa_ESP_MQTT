@@ -2241,13 +2241,7 @@ public:
     u8 read() {
         assert(didBegin);
         if (!readFromBuffer) {
-            char c;
-            //std::cin >> c;
-            c = _getch();
-            if (c == '\r') {
-                return '\n';
-            }
-            return c;
+            return _getch();
         }
 
         return buffer.at(index++);
@@ -2549,7 +2543,7 @@ u32 readSerialLine(Buffer& buffer) {
             continue;
         }
 
-        if (c == '\n') {
+        if (c == 0x0d) {
             break;
         }
 
