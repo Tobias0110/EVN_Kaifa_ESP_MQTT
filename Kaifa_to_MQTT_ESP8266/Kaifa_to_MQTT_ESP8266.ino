@@ -1010,6 +1010,7 @@ public:
         WifiPassword,
         MqttBrokerAddress,
         MqttBrokerPort,
+        MqttCertificateFingerprint,
         MqttBrokerUser,
         MqttBrokerPassword,
         MqttBrokerClientId,
@@ -1120,6 +1121,7 @@ const SettingsField::FieldInfo SettingsField::fields[SettingsField::NumberOfFiel
     {WifiPassword, "wifi password", nullptr, 65},
     {MqttBrokerAddress, "mqtt broker network ip address", nullptr, 21},
     {MqttBrokerPort, "mqtt broker network port", "1883", 7},
+    {MqttCertificateFingerprint, "mqtt broker certificate fingerprint ('[insecure]' disables TLS)", "[insecure]", 45},
     {MqttBrokerUser, "mqtt broker user name", "power-meter", 21},
     {MqttBrokerPassword, "mqtt broker password", nullptr, 21},
     {MqttBrokerClientId, "mqtt broker client id", nullptr, 21},
@@ -2345,6 +2347,17 @@ private:
     OwnedBuffer buffer;
 };
 
+class DummyWiFiClient {
+
+};
+
+class DummyWiFiClientSecure : public DummyWiFiClient {
+public:
+    void setFingerprint(const char* hash) {
+        std::cout << "[!] Secure client: Allow certificate with fingerprint: " << hash << std::endl;
+    }
+};
+
 class DummyPubSubClient {
 public:
     bool connected() {
@@ -2371,6 +2384,8 @@ public:
     void setServer(const char* address, u32 port) {
         std::cout << "[!] Mqtt set server: " << address << " " << port << std::endl;
     }
+
+    void setClient(DummyWiFiClient&) {}
 
 private:
     bool isConnected{ false };
@@ -2471,6 +2486,7 @@ const char* eepromInitData[] = {
     "a-secure-password", // WifiPassword
     "192.168.1.1",       // MqttBrokerAddress
     "1883",              // MqttBrokerPort
+    "a-cert-hash",       // MqttCertificateFingerprint
     "username",          // MqttBrokerUser
     "user-passphrase",   // MqttBrokerPassword
     "client-id",         // MqttBrokerClientId
@@ -2479,10 +2495,14 @@ const char* eepromInitData[] = {
     "36C66639E48A8CA4D6BC8B282A793BBB" // DslmCosemDecryptionKey (example provided by EVN)
 };
 
+using WiFiClient = DummyWiFiClient;
+using WiFiClientSecure = DummyWiFiClientSecure;
+
 DummyEEPROM EEPROM{ eepromInitData, true };
 
 DummySerial Serial{ NoStl::move(serialDataFrame.value()) };
 DummyWifi WiFi;
+NoStl::UniquePtr<WiFiClient> wifiClient;
 DummyPubSubClient pubsubClient;
 
 void setup();
@@ -2502,8 +2522,8 @@ int main()
 
 #else
 
-WiFiClient wifiClient;
-PubSubClient pubsubClient{ wifiClient };
+NoStl::UniquePtr<WiFiClient> wifiClient;
+PubSubClient pubsubClient{};
 
 #endif
 
@@ -2560,6 +2580,24 @@ void connectToWifi() {
 }
 
 void initMqtt() {
+    {
+        LocalBuffer<100> fingerprint;
+        Settings.getCString(SettingsField::MqttCertificateFingerprint, fingerprint);
+        if (strstr(fingerprint.charBegin(), "[insecure]")) {
+            debugOut << "Creating insecure wifi client" << debugEndl;
+            wifiClient = NoStl::makeUnique<WiFiClient>();
+        }
+        else {
+            debugOut << "Creating secure wifi client with fingerprint: " << fingerprint.charBegin() << debugEndl;
+
+            auto client= NoStl::makeUnique<WiFiClientSecure>();
+            client->setFingerprint(fingerprint.charBegin());
+            wifiClient = NoStl::move(client);
+        }
+
+        pubsubClient.setClient(*wifiClient);
+    }
+
     {
         LocalBuffer<20> port;
         Settings.getCString(SettingsField::MqttBrokerAddress, mqttServerDomain);
