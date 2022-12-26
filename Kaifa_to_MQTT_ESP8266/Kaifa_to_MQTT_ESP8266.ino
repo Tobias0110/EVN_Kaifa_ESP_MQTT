@@ -1057,6 +1057,17 @@ public:
     }
 
     ErrorOr<void> validate(const Buffer& buffer, u32 length) const {
+        auto validateHexString = [](const Buffer& buffer) -> ErrorOr<void> {
+            for (u32 i = 0; i != 32; i++) {
+                auto c = buffer[i];
+                if (!(c >= 'a' && c <= 'f') && !(c >= 'A' && c <= 'F') && !(c >= '0' && c <= '9')) {
+                    return Error{ "Bad hex character. Expected range is [a-fA-F0-9]" };
+                }
+            }
+
+            return {};
+        };
+
         switch (type) {
         case MqttBrokerPort:
             for (u32 i = 0; i != length; i++) {
@@ -1080,11 +1091,15 @@ public:
             if (length != 32) {
                 return Error{ "Expected 32 hex digits" };
             }
-            for (u32 i = 0; i != 32; i++) {
-                auto c = buffer[i];
-                if (!(c >= 'a' && c <= 'f') && !(c >= 'A' && c <= 'F') && !(c >= '0' && c <= '9')) {
-                    return Error{ "Bad hex character. Expected range is [a-fA-F0-9]" };
+            TRY(validateHexString(buffer));
+            break;
+        case MqttCertificateFingerprint:
+            if (strncmp(buffer.charBegin(), "[insecure]", buffer.length())) {
+                if (length != 40) {
+                    return Error{ "Expected 40 hex digits" };
                 }
+
+                TRY(validateHexString(buffer));
             }
             break;
         default:
@@ -2480,7 +2495,7 @@ const char* eepromInitData[] = {
     "a-secure-password", // WifiPassword
     "192.168.1.1",       // MqttBrokerAddress
     "1883",              // MqttBrokerPort
-    "a-cert-hash",       // MqttCertificateFingerprint
+    "0123456789ABCDEF0123456789ABCDEF01234567", // MqttCertificateFingerprint
     "username",          // MqttBrokerUser
     "user-passphrase",   // MqttBrokerPassword
     "client-id",         // MqttBrokerClientId
