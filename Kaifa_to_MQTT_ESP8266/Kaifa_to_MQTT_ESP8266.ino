@@ -12,6 +12,7 @@
 *   - Add board config repository: File --> Preferences --> Paste URL into "Additional boards manager URLs": http://arduino.esp8266.com/stable/package_esp8266com_index.json
 *   - Install the toolchain: Tools --> Boards Manager --> Install: esp8266
 *   - Select the specific ESP module: Tools --> Board --> ESP2866 Boards --> NodeMCU 1.0 (ESP-12E Modul)
+* - Open the Library Manager and intstall the dependencies listed below (Crypto, PubSubClient)
 * - Click verify to check if the project buildes without errors
 * - Connect the ESP module and click upload like for any other Arduino-like micro controller
 *
