@@ -304,6 +304,11 @@ namespace NoStl {
 
         T* ptr{ nullptr };
     };
+
+    template<typename T, typename ...Args>
+    UniquePtr<T> makeUnique(Args&&... args) {
+        return UniquePtr<T>{ new T(forward<Args>(args)...) };
+    }
 }
 
 
@@ -2581,16 +2586,16 @@ void initMqtt() {
         switch (mqttMessageMode.at(0)) {
         case '0':
             debugOut << "Creating mqtt RAW sender" << debugEndl;
-            mqttSender = new MqttRawSender<decltype(pubsubClient)>{ pubsubClient, basePath.charBegin(), mqttClient.charBegin(), mqttUser.charBegin(), mqttPassword.charBegin() };
+            mqttSender = NoStl::makeUnique<MqttRawSender<decltype(pubsubClient)>>( pubsubClient, basePath.charBegin(), mqttClient.charBegin(), mqttUser.charBegin(), mqttPassword.charBegin() );
             break;
         case '1':
             debugOut << "Creating mqtt TOPIC sender" << debugEndl;
-            mqttSender = new MqttTopicSender<decltype(pubsubClient)>{ pubsubClient, basePath.charBegin(), mqttClient.charBegin(), mqttUser.charBegin(), mqttPassword.charBegin() };
+            mqttSender = NoStl::makeUnique<MqttTopicSender<decltype(pubsubClient)>>( pubsubClient, basePath.charBegin(), mqttClient.charBegin(), mqttUser.charBegin(), mqttPassword.charBegin() );
             break;
         case '2':
         default:
             debugOut << "Creating mqtt JSON sender" << debugEndl;
-            mqttSender = new MqttJsonSender<decltype(pubsubClient)>{ pubsubClient, basePath.charBegin(), mqttClient.charBegin(), mqttUser.charBegin(), mqttPassword.charBegin() };
+            mqttSender = NoStl::makeUnique<MqttJsonSender<decltype(pubsubClient)>>( pubsubClient, basePath.charBegin(), mqttClient.charBegin(), mqttUser.charBegin(), mqttPassword.charBegin() );
             break;
         }
     }
