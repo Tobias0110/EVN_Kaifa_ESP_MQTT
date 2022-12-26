@@ -1119,7 +1119,7 @@ private:
 const SettingsField::FieldInfo SettingsField::fields[SettingsField::NumberOfFields] = {
     {WifiSSID, "wifi ssid", nullptr, 33},
     {WifiPassword, "wifi password", nullptr, 65},
-    {MqttBrokerAddress, "mqtt broker network ip address", nullptr, 21},
+    {MqttBrokerAddress, "mqtt broker network address", nullptr, 21},
     {MqttBrokerPort, "mqtt broker network port", "1883", 7},
     {MqttCertificateFingerprint, "mqtt broker certificate fingerprint ('[insecure]' disables TLS)", "[insecure]", 45},
     {MqttBrokerUser, "mqtt broker user name", "power-meter", 21},
