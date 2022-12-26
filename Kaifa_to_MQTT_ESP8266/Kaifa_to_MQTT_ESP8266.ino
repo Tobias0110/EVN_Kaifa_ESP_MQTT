@@ -252,14 +252,21 @@ namespace NoStl {
     public:
         UniquePtr() : ptr{ nullptr } {};
         UniquePtr(const UniquePtr&) = delete;
-        UniquePtr(UniquePtr&& other) : ptr{ other.release() } {}
-        UniquePtr(T* p) : ptr{ p } {}
+
+        template<typename U>
+        UniquePtr(UniquePtr<U>&& other) : ptr{ other.release() } {}
+
+        template<typename U>
+        explicit UniquePtr(U* p) : ptr{ p } {}
+
+        explicit UniquePtr(T* p) : ptr{ p } {}
 
         ~UniquePtr() {
             reset();
         }
 
-        UniquePtr& operator=(UniquePtr&& other) {
+        template<typename U>
+        UniquePtr& operator=(UniquePtr<U>&& other) {
             reset();
             ptr = other.ptr;
             other.ptr = nullptr;
@@ -292,6 +299,9 @@ namespace NoStl {
         }
 
     private:
+        template<typename U>
+        friend class UniquePtr;
+
         T* ptr{ nullptr };
     };
 }
