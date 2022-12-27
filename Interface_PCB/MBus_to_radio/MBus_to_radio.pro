@@ -1,4 +1,4 @@
-update=Di 08 Nov 2022 00:29:28
+update=Mo 05 Dez 2022 13:53:05
 version=1
 last_client=kicad
 [general]
@@ -241,7 +241,7 @@ dPairViaGap=0.25
 [schematic_editor]
 version=1
 PageLayoutDescrFile=
-PlotDirectoryName=./
+PlotDirectoryName=Prints/
 SubpartIdSeparator=0
 SubpartFirstId=65
 NetFmtName=
