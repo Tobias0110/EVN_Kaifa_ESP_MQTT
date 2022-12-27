@@ -72,8 +72,14 @@ MQTT broker path || Base path prepended to MQTT topics |
 MQTT message mode | 2 | Selects the format for sending the data fields to the MQTT broker server (0 - raw, 1 - topics, 2 - json) |
 DSLM/COSEM decryption key (meter key) || Decryption key to decipher the MBus data packets provided by the power company |
 
+> **Note**
+> When reconnecting the microcontroller PCB to the interface PCB make sure that the pins align correctly.
+> Also make sure the USB connector points in the direction of the M-Bus connector. Wrong positioning can result in shorts and damage the microcontroler.
 
 ## 📬 MQTT output formats
+> **Note**
+> When using secure MQTT, make sure to put `tls_version tlsv1.2` in your MQTT servers config file, so it only accepts encrypted connections!
+
 The system can be configured to output the data received from the smartmeter in one
 of the following formats.
 
