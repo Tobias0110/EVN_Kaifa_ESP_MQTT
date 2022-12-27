@@ -36,6 +36,7 @@ project yourself.
 2. Open the Library Manager pane and install the following dependecies
     * [Crypto](https://github.com/rweather/arduino-projects) by Rhys Weatherley
     * [PubSubClient](https://github.com/knolleary/pubsubclient) by Nicholas O'Leary
+    * [CRC](https://github.com/RobTillaart/CRC) by Rob Tillaart
 3. Click verify to check if the project buildes without errors
 4. Connect the ESP module and click upload like for any other Arduino-like micro controller
 5. Connect to the ESP2866 through the serial monitor and start configuration

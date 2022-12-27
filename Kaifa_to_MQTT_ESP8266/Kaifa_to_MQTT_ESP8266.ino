@@ -44,6 +44,7 @@
 #include "Crypto-0.4.0/src/Crypto.h"
 #include "Crypto-0.4.0/src/AES.h"
 #include "Crypto-0.4.0/src/GCM.h"
+#include "CRC-master/CRC32.h"
 
 #else 
 
@@ -52,6 +53,7 @@
 * - ESP8266 Arduino support (Arduino team - GNU LGPL v2.1): https://github.com/esp8266/Arduino
 * - Crypto: (Rhys Weatherley - MIT) https://rweather.github.io/arduinolibs/crypto.html
 * - PubSubClient: (Nicholas O'Leary - MIT) https://pubsubclient.knolleary.net/
+* - CRC: (Rob Tillaart - MIT) https://github.com/RobTillaart/CRC
 **/
 
 #include <ESP8266WiFi.h>
@@ -62,6 +64,7 @@
 #include <Crypto.h>
 #include <AES.h>
 #include <GCM.h>
+#include <CRC32.h>
 
 #endif
 
@@ -1184,7 +1187,7 @@ public:
 
     void save() {
         auto storageSize = SettingsField::requiredStorage();
-        eeprom[storageSize] = calcChecksum();
+        writeChecksum(storageSize, calcChecksum(storageSize));
 
         eeprom.commit();
     }
@@ -1220,25 +1223,36 @@ public:
         for (u32 i = 0; i != storageSize; i++) {
             eeprom[i]= 0;
         }
-        eeprom[storageSize] = 0xff; // Set bad checksum
+        writeChecksum(storageSize, 0xff00ff00); // Set bad checksum
         eeprom.commit();
     }
 
 
 private:
 
-    u8 calcChecksum() {
-        auto storageSize = SettingsField::requiredStorage();
-        u8 checksum = 0;
+    u32 calcChecksum(u32 storageSize) {
+        CRC32 checkSummer;
+        checkSummer.enableYield();
         for (u32 i = 0; i != storageSize; i++) {
-            checksum += eeprom[i];
+            checkSummer.add( eeprom[i] );
         }
-        return checksum;
+        return checkSummer.getCRC();
+    }
+
+    u32 readChecksum(u32 storageSize) {
+        return (eeprom[storageSize + 3] << 24) | (eeprom[storageSize + 2] << 16) | (eeprom[storageSize + 1] << 8) | eeprom[storageSize];
+    }
+
+    void writeChecksum(u32 storageSize, u32 value) {
+        eeprom[storageSize + 3] = (value >> 24) & 0xFF;
+        eeprom[storageSize + 2] = (value >> 16) & 0xFF;
+        eeprom[storageSize + 1] = (value >> 8) & 0xFF;
+        eeprom[storageSize] = value & 0xFF;
     }
 
     bool checkChecksum() {
         auto storageSize = SettingsField::requiredStorage();
-        return calcChecksum() == eeprom[storageSize];
+        return calcChecksum(storageSize) == readChecksum(storageSize);
     }
 
     T& eeprom;
@@ -2404,7 +2418,7 @@ private:
 class DummyEEPROM {
 public:
 
-    explicit DummyEEPROM(const char* entries[], bool goodChecksum) : buffer{ Buffer::allocate(1024) } {
+    explicit DummyEEPROM(const char* entries[], bool goodChecksum) : buffer{ Buffer::allocate(4096) } {
         SettingsField::forEach([&](SettingsField field) {
             auto offset = field.calcOffset();
             memcpy((char*)buffer.begin() + offset, entries[field.enumType()], field.maxLength());
@@ -2412,11 +2426,16 @@ public:
             });
 
         auto len = SettingsField::requiredStorage();
-        u8 checksum = 0;
+        CRC32 summer;
         for (u32 i = 0; i < len; i++) {
-            checksum += buffer.at(i);
+            summer.add( buffer.at(i) );
         }
-        buffer[len] = goodChecksum ? checksum : checksum + 1; // Deliberatly set a bad checksum
+        auto checksum= goodChecksum ? summer.getCRC() : summer.getCRC()+ 1; // Deliberatly set a bad checksum
+        std::cout << "[!] EEPROM - Calculated CRC32: " << checksum << std::endl;
+        buffer[len + 3] = (checksum >> 24) & 0xFF;
+        buffer[len + 2] = (checksum >> 16) & 0xFF;
+        buffer[len + 1] = (checksum >> 8) & 0xFF;
+        buffer[len] = checksum & 0xFF;
     }
 
     void begin(u32 size) { didBegin = true; }
