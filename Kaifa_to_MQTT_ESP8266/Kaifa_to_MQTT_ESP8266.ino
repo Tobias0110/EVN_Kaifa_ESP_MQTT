@@ -2737,7 +2737,9 @@ void setup() {
     Serial.println("Starting smart meter mqtt gateway v2.0");
     Serial.println("Initializing...");
 
-    EEPROM.begin(1024);
+    constexpr auto EEPROMBytesToLoad = 1024;
+    assert(EEPROMBytesToLoad >= SettingsField::requiredStorage() + 4);
+    EEPROM.begin(EEPROMBytesToLoad);
 
     bool showSetup = false;
     bool settingsDataIsValid = true;
