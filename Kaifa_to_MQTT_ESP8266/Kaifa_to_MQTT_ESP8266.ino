@@ -1102,20 +1102,20 @@ public:
     ErrorOr<void> validate(Buffer& buffer) const {
         auto validateAndCompactHexString = [&buffer](i32 numDigits) -> ErrorOr<void> {
             u32 compactingOffset = 0;
-            for (u32 i = 0; i != buffer.length()-1; i++) {
+            for (u32 i = 0; i != buffer.length() - 1; i++) {
                 auto c = buffer[i];
                 if (!(c >= 'a' && c <= 'f') && !(c >= 'A' && c <= 'F') && !(c >= '0' && c <= '9') && (c != ' ')) {
                     return Error{ "Bad hex character. Expected range is [a-fA-F0-9 ]" };
                 }
-                
-                if(c != ' ') {
+
+                if (c != ' ') {
                     buffer[compactingOffset++] = c;
                     numDigits--;
                 }
             }
 
             buffer[compactingOffset] = '\0';
-            buffer.shrinkLength(compactingOffset+1);
+            buffer.shrinkLength(compactingOffset + 1);
 
             if (numDigits > 0) {
                 return Error{ "Too few hex digits" };
@@ -1138,7 +1138,7 @@ public:
         };
 
         auto validateLength = [&buffer](u32 len) -> ErrorOr<void> {
-            if (buffer.length()-1 != len) {
+            if (buffer.length() - 1 != len) {
                 return Error{ "" };
             }
             return {};
@@ -1146,7 +1146,7 @@ public:
 
         switch (type) {
         case MqttBrokerPort:
-            for (u32 i = 0; i != buffer.length()-1; i++) {
+            for (u32 i = 0; i != buffer.length() - 1; i++) {
                 if (buffer[i] < '0' || buffer[i] > '9') {
                     return Error{ "Bad digit. Expected positive integer" };
                 }
@@ -1249,7 +1249,7 @@ public:
         assert(buffer.length() >= (field.maxLength() - 1) / 2); // Ignore the null termination byte and convert nibble count to byte count
 
         auto offset = field.calcOffset();
-        buffer.parseHex(eeprom, field.maxLength() - 1, field.maxLength() - 1, offset);
+        buffer.parseHex(IndexReader<T>{eeprom, field.maxLength() - 1, offset}, field.maxLength() - 1);
     }
 
     void save() {
@@ -1301,7 +1301,7 @@ private:
         CRC32 checkSummer;
         checkSummer.enableYield();
         for (u32 i = 0; i != storageSize; i++) {
-            checkSummer.add( eeprom[i] );
+            checkSummer.add(eeprom[i]);
         }
         return checkSummer.getCRC();
     }
@@ -2495,9 +2495,9 @@ public:
         auto len = SettingsField::requiredStorage();
         CRC32 summer;
         for (u32 i = 0; i < len; i++) {
-            summer.add( buffer.at(i) );
+            summer.add(buffer.at(i));
         }
-        auto checksum= goodChecksum ? summer.getCRC() : summer.getCRC()+ 1; // Deliberatly set a bad checksum
+        auto checksum = goodChecksum ? summer.getCRC() : summer.getCRC() + 1; // Deliberatly set a bad checksum
         std::cout << "[!] EEPROM - Calculated CRC32: " << checksum << std::endl;
         buffer[len + 3] = (checksum >> 24) & 0xFF;
         buffer[len + 2] = (checksum >> 16) & 0xFF;
@@ -2651,7 +2651,7 @@ u32 readSerialLine(Buffer& buffer) {
         }
 
         // Backspace key
-        if (c == 0x08 ) {
+        if (c == 0x08) {
             if (index > 0) {
                 buffer[--index] = '\0';
                 Serial.print("\r\n");
@@ -2790,7 +2790,7 @@ void runSetupWizard(bool oldDataIsValid) {
                 length = 149;
             }
             buffer[length] = '\0';
-            buffer.shrinkLength(length+1);
+            buffer.shrinkLength(length + 1);
 
             // Validation
             auto validationError = field.validate(buffer);
