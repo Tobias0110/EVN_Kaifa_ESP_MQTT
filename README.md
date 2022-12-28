@@ -64,7 +64,7 @@ WiFi SSID || SSID of the WiFi station to connect to |
 WiFI password || Password of the WiFi station to connect to |
 MQTT broker network address || Domain/IP of the MQTT broker server |
 MQTT broker network port | 1883 | Network port of the MQTT broker server |
-MQTT broker certificate fingerprint | [insecure] | Fingerprint of the SSL certificate of the MQTT broker server as hex string. If set to `[insecure]` TLS is disabled and all data is sent as plaint text |
+MQTT broker certificate fingerprint | [insecure] | SHA1 fingerprint of the SSL certificate of the MQTT broker server as hex string. If set to `[insecure]` TLS is disabled and all data is sent as plaint text |
 MQTT broker user name | power-meter | User name to authenticate at the MQTT broker server |
 MQTT broker password || Password to authenticate at the MQTT broker server |
 MQTT broker client id || Client id to register as at the MQTT broker server |

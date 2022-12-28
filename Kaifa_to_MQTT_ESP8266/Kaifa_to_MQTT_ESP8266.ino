@@ -1164,7 +1164,7 @@ const SettingsField::FieldInfo SettingsField::fields[SettingsField::NumberOfFiel
     {WifiPassword, "wifi password", nullptr, 65},
     {MqttBrokerAddress, "mqtt broker network address", nullptr, 21},
     {MqttBrokerPort, "mqtt broker network port", "1883", 7},
-    {MqttCertificateFingerprint, "mqtt broker certificate fingerprint ('[insecure]' disables TLS)", "[insecure]", 45},
+    {MqttCertificateFingerprint, "mqtt broker certificate sha1 fingerprint ('[insecure]' disables TLS)", "[insecure]", 45},
     {MqttBrokerUser, "mqtt broker user name", "power-meter", 21},
     {MqttBrokerPassword, "mqtt broker password", nullptr, 21},
     {MqttBrokerClientId, "mqtt broker client id", nullptr, 21},
