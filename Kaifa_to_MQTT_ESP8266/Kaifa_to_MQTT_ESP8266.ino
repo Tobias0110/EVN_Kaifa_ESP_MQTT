@@ -1212,13 +1212,13 @@ public:
                 getCString(field, buffer);
                 stream << "* " << field.name() << ": " << buffer.charBegin() << "\r\n";
             }
-        });
+            });
     }
 
     void erase() {
         auto storageSize = SettingsField::requiredStorage();
         for (u32 i = 0; i != storageSize; i++) {
-            eeprom[i]= 0;
+            eeprom[i] = 0;
         }
         eeprom[storageSize] = 0xff; // Set bad checksum
         eeprom.commit();
@@ -2611,7 +2611,7 @@ void initMqtt() {
         else {
             debugOut << "Creating secure wifi client with fingerprint: " << fingerprint.charBegin() << debugEndl;
 
-            auto client= NoStl::makeUnique<WiFiClientSecure>();
+            auto client = NoStl::makeUnique<WiFiClientSecure>();
             client->setFingerprint(fingerprint.charBegin());
             wifiClient = NoStl::move(client);
         }
@@ -2645,16 +2645,16 @@ void initMqtt() {
         switch (mqttMessageMode.at(0)) {
         case '0':
             debugOut << "Creating mqtt RAW sender" << debugEndl;
-            mqttSender = NoStl::makeUnique<MqttRawSender<decltype(pubsubClient)>>( pubsubClient, basePath.charBegin(), mqttClient.charBegin(), mqttUser.charBegin(), mqttPassword.charBegin() );
+            mqttSender = NoStl::makeUnique<MqttRawSender<decltype(pubsubClient)>>(pubsubClient, basePath.charBegin(), mqttClient.charBegin(), mqttUser.charBegin(), mqttPassword.charBegin());
             break;
         case '1':
             debugOut << "Creating mqtt TOPIC sender" << debugEndl;
-            mqttSender = NoStl::makeUnique<MqttTopicSender<decltype(pubsubClient)>>( pubsubClient, basePath.charBegin(), mqttClient.charBegin(), mqttUser.charBegin(), mqttPassword.charBegin() );
+            mqttSender = NoStl::makeUnique<MqttTopicSender<decltype(pubsubClient)>>(pubsubClient, basePath.charBegin(), mqttClient.charBegin(), mqttUser.charBegin(), mqttPassword.charBegin());
             break;
         case '2':
         default:
             debugOut << "Creating mqtt JSON sender" << debugEndl;
-            mqttSender = NoStl::makeUnique<MqttJsonSender<decltype(pubsubClient)>>( pubsubClient, basePath.charBegin(), mqttClient.charBegin(), mqttUser.charBegin(), mqttPassword.charBegin() );
+            mqttSender = NoStl::makeUnique<MqttJsonSender<decltype(pubsubClient)>>(pubsubClient, basePath.charBegin(), mqttClient.charBegin(), mqttUser.charBegin(), mqttPassword.charBegin());
             break;
         }
     }
@@ -2677,7 +2677,8 @@ void runSetupWizard(bool oldDataIsValid) {
                 auto shownValue = field.isSecure() ? "<hidden-value>" : defaultValue;
                 serialStream << " or just press enter to confirm old value (" << shownValue << ") ";
 
-            } else if (field.defaultValue()) {
+            }
+            else if (field.defaultValue()) {
                 defaultValue = field.defaultValue();
                 serialStream << " or just press enter to confirm default value (" << defaultValue << ") ";
             }
