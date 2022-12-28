@@ -2559,8 +2559,19 @@ u32 readSerialLine(Buffer& buffer) {
             continue;
         }
 
+        // Return key
         if (c == 0x0d) {
             break;
+        }
+
+        // Backspace key
+        if (c == 0x08 ) {
+            if (index > 0) {
+                buffer[--index] = '\0';
+                Serial.print("\r\n");
+                Serial.print(buffer.charBegin());
+            }
+            continue;
         }
 
         Serial.write(c);
