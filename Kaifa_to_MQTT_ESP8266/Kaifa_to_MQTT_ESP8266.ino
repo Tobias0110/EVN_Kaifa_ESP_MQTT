@@ -1073,7 +1073,8 @@ public:
                 }
             }
 
-            buffer.shrinkLength(compactingOffset);
+            buffer[compactingOffset] = '\0';
+            buffer.shrinkLength(compactingOffset+1);
 
             if (numDigits > 0) {
                 return Error{ "Too few hex digits" };
