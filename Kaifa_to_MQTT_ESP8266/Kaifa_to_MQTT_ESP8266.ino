@@ -99,7 +99,7 @@
 #ifdef _DEBUG
 #define DEBUG_PRINTING 1
 #else
-#define DEBUG_PRINTING 1
+#define DEBUG_PRINTING 0
 #endif
 
 using u8 = uint8_t;
@@ -1050,6 +1050,7 @@ public:
         switch (type) {
         case WifiPassword:
         case MqttBrokerPassword:
+        case MqttCertificateFingerprint:
         case DslmCosemDecryptionKey:
             return true;
         default:
@@ -1072,7 +1073,8 @@ public:
                 }
             }
 
-            buffer.shrinkLength(compactingOffset);
+            buffer[compactingOffset] = '\0';
+            buffer.shrinkLength(compactingOffset+1);
 
             if (numDigits > 0) {
                 return Error{ "Too few hex digits" };
