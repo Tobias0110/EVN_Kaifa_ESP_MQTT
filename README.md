@@ -19,7 +19,9 @@ is parsed to extract the measurement fields. These fields are then sent to an MQ
 broker in a preselected format. All relevant parameters can be configured via the
 serial console at startup and are saved to the EEPROM.
 
-![Complete assambly of the custom PCB and the ESP8266 on top](/device_pictures/interface_with_ESP.jpg)
+<p align="center">
+  <img alt="Complete assambly of the custom PCB and the ESP8266 on top" src="/device_pictures/interface_with_ESP.jpg" width="500">
+</p>
 
 ## 🔧 Installation
 > **Note**
@@ -166,7 +168,9 @@ useful to understand how the comunication should be implemented:
 * Python implementation of a [DLMS to XML converter](https://github.com/Gurux/Gurux.DLMS.Python/)
 
 ## ⚒ Hardware
-![Interface PCB version 2](/device_pictures/interface_pcb_V2.png)
+<p align="center">
+  <img alt="Interface PCB version 2" src="/device_pictures/interface_pcb_V2.png" width="400">
+</p>
 
 New in Version 2:
 * M-Bus over voltage protection: Protects the DC/DC converter from voltages outside its specs.
