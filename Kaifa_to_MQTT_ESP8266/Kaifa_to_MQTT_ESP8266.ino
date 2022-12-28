@@ -1084,6 +1084,16 @@ public:
             return {};
         };
 
+        auto validatePrintableASCII = [&buffer]() -> ErrorOr<void> {
+            for (u32 i = 0; i != buffer.length() - 1; i++) {
+                if (buffer[i] < 32 || buffer[i] > 126) {
+                    return Error{ "Bad unprintable ASCII character found" };
+                }
+            }
+
+            return {};
+        };
+
         auto validateLength = [&buffer](u32 len) -> ErrorOr<void> {
             if (buffer.length()-1 != len) {
                 return Error{ "" };
@@ -1120,6 +1130,7 @@ public:
             if (buffer.length() > maxLength()) {
                 return Error{ "Input is too long. Not enough space. " };
             }
+            TRY(validatePrintableASCII());
             break;
         }
 
