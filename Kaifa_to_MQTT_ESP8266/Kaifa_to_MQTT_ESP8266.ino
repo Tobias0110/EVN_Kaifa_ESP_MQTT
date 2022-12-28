@@ -162,6 +162,8 @@ class Buffer;
 template<int>
 class LocalBuffer;
 class OwnedBuffer;
+template<typename>
+class IndexReader;
 class BufferReaderBase;
 class BufferReader;
 template<typename>
@@ -463,11 +465,11 @@ public:
     }
 
     template<typename T>
-    void parseHex(const T& source, u32 nibbleCount, u32 maxReadBytes = 0, u32 sourceOffset = 0) {
+    void parseHex(T reader, u32 nibbleCount) {
         u32 writeIdx = 0;
-        for (u32 readIdx = 0; nibbleCount > 0 && writeIdx < byteCount && (readIdx < maxReadBytes || !maxReadBytes); readIdx++) {
+        while (nibbleCount > 0 && writeIdx < byteCount && reader.hasNext()) {
             u8 value;
-            u8 c = source[readIdx + sourceOffset];
+            u8 c = reader.nextU8();
             if (c >= '0' && c <= '9') {
                 value = c - '0';
             }
@@ -574,6 +576,40 @@ public:
     }
 };
 
+template<typename T>
+class IndexReader {
+public:
+    IndexReader(const T& s, u32 m, u32 o = 0) : maxBytesToRead{ m }, readOffset{ o }, source{ s } {}
+
+    bool hasNext(u32 c = 1) const {
+        return index + c <= maxBytesToRead;
+    }
+
+    u8 nextU8() {
+        assert(hasNext());
+        return at(index++);
+    }
+
+    u8 peakU8() const {
+        assert(hasNext());
+        return at(index);
+    }
+
+    void skip(u32 num = 1) {
+        assert(hasNext(num));
+        index += num;
+    }
+
+private:
+    u8 at(u32 i) const {
+        return source[readOffset + i];
+    }
+
+    u32 maxBytesToRead;
+    u32 readOffset;
+    u32 index{ 0 };
+    const T& source;
+};
 
 OwnedBuffer Buffer::allocate(u32 size) {
     return { new u8[size], size };
@@ -581,11 +617,13 @@ OwnedBuffer Buffer::allocate(u32 size) {
 
 ErrorOr<OwnedBuffer> Buffer::fromHexString(const char* hexString) {
     u32 nibbleCount = 0;
+    u32 byteCount = 0;
 
     for (auto it = hexString; *it; it++) {
         if ((*it >= '0' && *it <= '9') || (*it >= 'a' && *it <= 'f') || (*it >= 'A' && *it <= 'F')) {
             nibbleCount++;
         }
+        byteCount++;
     }
 
     if (nibbleCount % 2 != 0) {
@@ -595,7 +633,7 @@ ErrorOr<OwnedBuffer> Buffer::fromHexString(const char* hexString) {
     auto bufferSize = nibbleCount / 2;
     auto bufferPointer = new u8[bufferSize];
     OwnedBuffer buffer{ bufferPointer, bufferSize };
-    buffer.parseHex(hexString, nibbleCount);
+    buffer.parseHex(IndexReader<const char*>{hexString, byteCount}, nibbleCount);
 
     return { NoStl::move(buffer) };
 }
