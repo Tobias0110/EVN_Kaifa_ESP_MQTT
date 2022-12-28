@@ -1050,6 +1050,7 @@ public:
         switch (type) {
         case WifiPassword:
         case MqttBrokerPassword:
+        case MqttCertificateFingerprint:
         case DslmCosemDecryptionKey:
             return true;
         default:
