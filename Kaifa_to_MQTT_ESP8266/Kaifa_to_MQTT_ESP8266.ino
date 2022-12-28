@@ -1059,11 +1059,26 @@ public:
 
     ErrorOr<void> validate(Buffer& buffer) const {
         auto validateAndCompactHexString = [&buffer](i32 numDigits) -> ErrorOr<void> {
+            u32 compactingOffset = 0;
             for (u32 i = 0; i != buffer.length()-1; i++) {
                 auto c = buffer[i];
-                if (!(c >= 'a' && c <= 'f') && !(c >= 'A' && c <= 'F') && !(c >= '0' && c <= '9')) {
-                    return Error{ "Bad hex character. Expected range is [a-fA-F0-9]" };
+                if (!(c >= 'a' && c <= 'f') && !(c >= 'A' && c <= 'F') && !(c >= '0' && c <= '9') && (c != ' ')) {
+                    return Error{ "Bad hex character. Expected range is [a-fA-F0-9 ]" };
                 }
+                
+                if(c != ' ') {
+                    buffer[compactingOffset++] = c;
+                    numDigits--;
+                }
+            }
+
+            buffer.shrinkLength(compactingOffset);
+
+            if (numDigits > 0) {
+                return Error{ "Too few hex digits" };
+            }
+            if (numDigits < 0) {
+                return Error{ "Too many hex digits" };
             }
 
             return {};
@@ -1094,12 +1109,10 @@ public:
             }
             break;
         case DslmCosemDecryptionKey:
-            RETHROW(validateLength(32), "Expected 32 hex digits");
             TRY(validateAndCompactHexString(32));
             break;
         case MqttCertificateFingerprint:
             if (strncmp(buffer.charBegin(), "[insecure]", buffer.length())) {
-                RETHROW(validateLength(40), "Expected 40 hex digits");
                 TRY(validateAndCompactHexString(40));
             }
             break;
