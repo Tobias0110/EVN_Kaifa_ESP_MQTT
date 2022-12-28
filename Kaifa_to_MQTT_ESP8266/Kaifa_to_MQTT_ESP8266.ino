@@ -99,7 +99,7 @@
 #ifdef _DEBUG
 #define DEBUG_PRINTING 1
 #else
-#define DEBUG_PRINTING 1
+#define DEBUG_PRINTING 0
 #endif
 
 using u8 = uint8_t;
