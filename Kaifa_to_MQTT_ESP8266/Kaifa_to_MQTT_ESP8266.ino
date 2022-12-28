@@ -1060,20 +1060,45 @@ public:
         }
     }
 
-    ErrorOr<void> validate(const Buffer& buffer, u32 length) const {
-        auto validateHexString = [&buffer, &length]() -> ErrorOr<void> {
-            for (u32 i = 0; i != length; i++) {
+    ErrorOr<void> validate(Buffer& buffer) const {
+        auto validateAndCompactHexString = [&buffer](i32 numDigits) -> ErrorOr<void> {
+            u32 compactingOffset = 0;
+            for (u32 i = 0; i != buffer.length()-1; i++) {
                 auto c = buffer[i];
-                if (!(c >= 'a' && c <= 'f') && !(c >= 'A' && c <= 'F') && !(c >= '0' && c <= '9')) {
-                    return Error{ "Bad hex character. Expected range is [a-fA-F0-9]" };
+                if (!(c >= 'a' && c <= 'f') && !(c >= 'A' && c <= 'F') && !(c >= '0' && c <= '9') && (c != ' ')) {
+                    return Error{ "Bad hex character. Expected range is [a-fA-F0-9 ]" };
+                }
+                
+                if(c != ' ') {
+                    buffer[compactingOffset++] = c;
+                    numDigits--;
+                }
+            }
+
+            buffer.shrinkLength(compactingOffset);
+
+            if (numDigits > 0) {
+                return Error{ "Too few hex digits" };
+            }
+            if (numDigits < 0) {
+                return Error{ "Too many hex digits" };
+            }
+
+            return {};
+        };
+
+        auto validatePrintableASCII = [&buffer]() -> ErrorOr<void> {
+            for (u32 i = 0; i != buffer.length() - 1; i++) {
+                if (buffer[i] < 32 || buffer[i] > 126) {
+                    return Error{ "Bad unprintable ASCII character found" };
                 }
             }
 
             return {};
         };
 
-        auto validateLength = [&buffer, &length](u32 len) -> ErrorOr<void> {
-            if (length != len) {
+        auto validateLength = [&buffer](u32 len) -> ErrorOr<void> {
+            if (buffer.length()-1 != len) {
                 return Error{ "" };
             }
             return {};
@@ -1081,7 +1106,7 @@ public:
 
         switch (type) {
         case MqttBrokerPort:
-            for (u32 i = 0; i != length; i++) {
+            for (u32 i = 0; i != buffer.length()-1; i++) {
                 if (buffer[i] < '0' || buffer[i] > '9') {
                     return Error{ "Bad digit. Expected positive integer" };
                 }
@@ -1097,16 +1122,18 @@ public:
             }
             break;
         case DslmCosemDecryptionKey:
-            RETHROW(validateLength(32), "Expected 32 hex digits");
-            TRY(validateHexString());
+            TRY(validateAndCompactHexString(32));
             break;
         case MqttCertificateFingerprint:
             if (strncmp(buffer.charBegin(), "[insecure]", buffer.length())) {
-                RETHROW(validateLength(40), "Expected 40 hex digits");
-                TRY(validateHexString());
+                TRY(validateAndCompactHexString(40));
             }
             break;
         default:
+            if (buffer.length() > maxLength()) {
+                return Error{ "Input is too long. Not enough space. " };
+            }
+            TRY(validatePrintableASCII());
             break;
         }
 
@@ -1140,7 +1167,7 @@ const SettingsField::FieldInfo SettingsField::fields[SettingsField::NumberOfFiel
     {WifiPassword, "wifi password", nullptr, 65},
     {MqttBrokerAddress, "mqtt broker network address", nullptr, 21},
     {MqttBrokerPort, "mqtt broker network port", "1883", 7},
-    {MqttCertificateFingerprint, "mqtt broker certificate fingerprint ('[insecure]' disables TLS)", "[insecure]", 45},
+    {MqttCertificateFingerprint, "mqtt broker certificate sha1 fingerprint ('[insecure]' disables TLS)", "[insecure]", 45},
     {MqttBrokerUser, "mqtt broker user name", "power-meter", 21},
     {MqttBrokerPassword, "mqtt broker password", nullptr, 21},
     {MqttBrokerClientId, "mqtt broker client id", nullptr, 21},
@@ -1215,13 +1242,13 @@ public:
                 getCString(field, buffer);
                 stream << "* " << field.name() << ": " << buffer.charBegin() << "\r\n";
             }
-        });
+            });
     }
 
     void erase() {
         auto storageSize = SettingsField::requiredStorage();
         for (u32 i = 0; i != storageSize; i++) {
-            eeprom[i]= 0;
+            eeprom[i] = 0;
         }
         writeChecksum(storageSize, 0xff00ff00); // Set bad checksum
         eeprom.commit();
@@ -2578,8 +2605,19 @@ u32 readSerialLine(Buffer& buffer) {
             continue;
         }
 
+        // Return key
         if (c == 0x0d) {
             break;
+        }
+
+        // Backspace key
+        if (c == 0x08 ) {
+            if (index > 0) {
+                buffer[--index] = '\0';
+                Serial.print("\r\n");
+                Serial.print(buffer.charBegin());
+            }
+            continue;
         }
 
         Serial.write(c);
@@ -2619,7 +2657,7 @@ void initMqtt() {
         else {
             debugOut << "Creating secure wifi client with fingerprint: " << fingerprint.charBegin() << debugEndl;
 
-            auto client= NoStl::makeUnique<WiFiClientSecure>();
+            auto client = NoStl::makeUnique<WiFiClientSecure>();
             client->setFingerprint(fingerprint.charBegin());
             wifiClient = NoStl::move(client);
         }
@@ -2653,16 +2691,16 @@ void initMqtt() {
         switch (mqttMessageMode.at(0)) {
         case '0':
             debugOut << "Creating mqtt RAW sender" << debugEndl;
-            mqttSender = NoStl::makeUnique<MqttRawSender<decltype(pubsubClient)>>( pubsubClient, basePath.charBegin(), mqttClient.charBegin(), mqttUser.charBegin(), mqttPassword.charBegin() );
+            mqttSender = NoStl::makeUnique<MqttRawSender<decltype(pubsubClient)>>(pubsubClient, basePath.charBegin(), mqttClient.charBegin(), mqttUser.charBegin(), mqttPassword.charBegin());
             break;
         case '1':
             debugOut << "Creating mqtt TOPIC sender" << debugEndl;
-            mqttSender = NoStl::makeUnique<MqttTopicSender<decltype(pubsubClient)>>( pubsubClient, basePath.charBegin(), mqttClient.charBegin(), mqttUser.charBegin(), mqttPassword.charBegin() );
+            mqttSender = NoStl::makeUnique<MqttTopicSender<decltype(pubsubClient)>>(pubsubClient, basePath.charBegin(), mqttClient.charBegin(), mqttUser.charBegin(), mqttPassword.charBegin());
             break;
         case '2':
         default:
             debugOut << "Creating mqtt JSON sender" << debugEndl;
-            mqttSender = NoStl::makeUnique<MqttJsonSender<decltype(pubsubClient)>>( pubsubClient, basePath.charBegin(), mqttClient.charBegin(), mqttUser.charBegin(), mqttPassword.charBegin() );
+            mqttSender = NoStl::makeUnique<MqttJsonSender<decltype(pubsubClient)>>(pubsubClient, basePath.charBegin(), mqttClient.charBegin(), mqttUser.charBegin(), mqttPassword.charBegin());
             break;
         }
     }
@@ -2685,7 +2723,8 @@ void runSetupWizard(bool oldDataIsValid) {
                 auto shownValue = field.isSecure() ? "<hidden-value>" : defaultValue;
                 serialStream << " or just press enter to confirm old value (" << shownValue << ") ";
 
-            } else if (field.defaultValue()) {
+            }
+            else if (field.defaultValue()) {
                 defaultValue = field.defaultValue();
                 serialStream << " or just press enter to confirm default value (" << defaultValue << ") ";
             }
@@ -2707,13 +2746,14 @@ void runSetupWizard(bool oldDataIsValid) {
                 length = strnlen(buffer.charBegin(), 150);
             }
 
-            // Validation
-            if (length > field.maxLength() - 1) {
-                serialStream << "Error: The value '" << buffer.charBegin() << "' is too long. (" << length << " bytes)\r\n";
-                continue;
+            if (length >= 150) {
+                length = 149;
             }
+            buffer[length] = '\0';
+            buffer.shrinkLength(length+1);
 
-            auto validationError = field.validate(buffer, length);
+            // Validation
+            auto validationError = field.validate(buffer);
             if (validationError.isError()) {
                 serialStream << "Error: The value '" << buffer.charBegin() << "' is invalid: " << validationError.error().message() << "\r\n";
                 continue;

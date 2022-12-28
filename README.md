@@ -19,7 +19,9 @@ is parsed to extract the measurement fields. These fields are then sent to an MQ
 broker in a preselected format. All relevant parameters can be configured via the
 serial console at startup and are saved to the EEPROM.
 
-![Complete assambly of the custom PCB and the ESP8266	on top](/device_pictures/interface_with_ESP.jpg)
+<p align="center">
+  <img alt="Complete assambly of the custom PCB and the ESP8266 on top" src="/device_pictures/interface_with_ESP.jpg" width="500">
+</p>
 
 ## 🔧 Installation
 > **Note**
@@ -65,7 +67,7 @@ WiFi SSID || SSID of the WiFi station to connect to |
 WiFI password || Password of the WiFi station to connect to |
 MQTT broker network address || Domain/IP of the MQTT broker server |
 MQTT broker network port | 1883 | Network port of the MQTT broker server |
-MQTT broker certificate fingerprint | [insecure] | Fingerprint of the SSL certificate of the MQTT broker server as hex string. If set to `[insecure]` TLS is disabled and all data is sent as plaint text |
+MQTT broker certificate fingerprint | [insecure] | SHA1 fingerprint of the SSL certificate of the MQTT broker server as hex string. If set to `[insecure]` TLS is disabled and all data is sent as plaint text |
 MQTT broker user name | power-meter | User name to authenticate at the MQTT broker server |
 MQTT broker password || Password to authenticate at the MQTT broker server |
 MQTT broker client id || Client id to register as at the MQTT broker server |
@@ -73,16 +75,22 @@ MQTT broker path || Base path prepended to MQTT topics |
 MQTT message mode | 2 | Selects the format for sending the data fields to the MQTT broker server (0 - raw, 1 - topics, 2 - json) |
 DSLM/COSEM decryption key (meter key) || Decryption key to decipher the MBus data packets provided by the power company |
 
+> **Note**
+> When reconnecting the microcontroller PCB to the interface PCB make sure that the pins align correctly.
+> Also make sure the USB connector points in the direction of the M-Bus connector. Wrong positioning can result in shorts and damage the microcontroler.
 
 ## 📬 MQTT output formats
+> **Note**
+> 🔐 When using secure MQTT, make sure to put `tls_version tlsv1.2` in your MQTT servers config file, so it only accepts encrypted connections!
+
 The system can be configured to output the data received from the smartmeter in one
 of the following formats.
 
-### Raw
+### 🥩 Raw
 The decryptd raw data without DSLM/COSEM parsing is sent to the broker at
 `<basepath/raw>`. The data is sent as binary.
 
-### JSON
+### 🐧 JSON
 If the data is serialized as JSON, it is sent to the broker at `<basepath>/json`.
 The json object has the following format.
 
@@ -121,7 +129,7 @@ The following JSON is an example package sent by the microcontroller.
 }
 ```
 
-### Individual topics
+### 🔬 Individual topics
 If the data fields are sent to individual mqtt topics the following paths are used.
 For a description of the fields checkout the section above.
 
@@ -159,6 +167,19 @@ useful to understand how the comunication should be implemented:
   * [Salzburg Netz](https://www.salzburgnetz.at/content/dam/salzburgnetz/dokumente/stromnetz/Technische-Beschreibung-Kundenschnittstelle.pdf)
   * [Tinetz](https://www.tinetz.at/infobereich/smart-meter/anleitungen-fragen-antworten/?no_cache=1&tx_bh_page%5Baction%5D=download&tx_bh_page%5Bcontroller%5D=File&tx_bh_page%5Bfile%5D=101&cHash=7b38017b8f4066394c0f5119ee1ae342)
 * Python implementation of a [DLMS to XML converter](https://github.com/Gurux/Gurux.DLMS.Python/)
+
+## ⚒ Hardware
+<p align="center">
+  <img alt="Interface PCB version 2" src="/device_pictures/interface_pcb_V2.png" width="400">
+</p>
+
+New in Version 2:
+* M-Bus over voltage protection: Protects the DC/DC converter from voltages outside its specs.
+* EMC improvements of the DC/DC converter.
+* Space for alternative Zener diodes to allow diffrent logic levels on the M-Bus.
+* Big capacitor can be alternatively placed on the bottom side of the PCB.
+* Markings for how to connect the microcontroller correctly.
+* Warning to disconnect the microcontroller for programming is now on the bottom side.
 
 ## 📋 Feature roadmap
 * [X] Output the clock of the smart meter in UTC
