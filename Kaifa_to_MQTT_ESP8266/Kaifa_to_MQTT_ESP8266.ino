@@ -1057,9 +1057,9 @@ public:
         }
     }
 
-    ErrorOr<void> validate(const Buffer& buffer, u32 length) const {
-        auto validateHexString = [&buffer, &length]() -> ErrorOr<void> {
-            for (u32 i = 0; i != length; i++) {
+    ErrorOr<void> validate(Buffer& buffer) const {
+        auto validateAndCompactHexString = [&buffer](i32 numDigits) -> ErrorOr<void> {
+            for (u32 i = 0; i != buffer.length(); i++) {
                 auto c = buffer[i];
                 if (!(c >= 'a' && c <= 'f') && !(c >= 'A' && c <= 'F') && !(c >= '0' && c <= '9')) {
                     return Error{ "Bad hex character. Expected range is [a-fA-F0-9]" };
@@ -1069,8 +1069,8 @@ public:
             return {};
         };
 
-        auto validateLength = [&buffer, &length](u32 len) -> ErrorOr<void> {
-            if (length != len) {
+        auto validateLength = [&buffer](u32 len) -> ErrorOr<void> {
+            if (buffer.length() != len) {
                 return Error{ "" };
             }
             return {};
@@ -1078,7 +1078,7 @@ public:
 
         switch (type) {
         case MqttBrokerPort:
-            for (u32 i = 0; i != length; i++) {
+            for (u32 i = 0; i != buffer.length(); i++) {
                 if (buffer[i] < '0' || buffer[i] > '9') {
                     return Error{ "Bad digit. Expected positive integer" };
                 }
@@ -1095,15 +1095,18 @@ public:
             break;
         case DslmCosemDecryptionKey:
             RETHROW(validateLength(32), "Expected 32 hex digits");
-            TRY(validateHexString());
+            TRY(validateAndCompactHexString(32));
             break;
         case MqttCertificateFingerprint:
             if (strncmp(buffer.charBegin(), "[insecure]", buffer.length())) {
                 RETHROW(validateLength(40), "Expected 40 hex digits");
-                TRY(validateHexString());
+                TRY(validateAndCompactHexString(40));
             }
             break;
         default:
+            if (buffer.length() > maxLength() - 1) {
+                return Error{ "Input is too long. Not enough space. " };
+            }
             break;
         }
 
@@ -2700,13 +2703,10 @@ void runSetupWizard(bool oldDataIsValid) {
                 length = strnlen(buffer.charBegin(), 150);
             }
 
-            // Validation
-            if (length > field.maxLength() - 1) {
-                serialStream << "Error: The value '" << buffer.charBegin() << "' is too long. (" << length << " bytes)\r\n";
-                continue;
-            }
+            buffer.shrinkLength(length);
 
-            auto validationError = field.validate(buffer, length);
+            // Validation
+            auto validationError = field.validate(buffer);
             if (validationError.isError()) {
                 serialStream << "Error: The value '" << buffer.charBegin() << "' is invalid: " << validationError.error().message() << "\r\n";
                 continue;
