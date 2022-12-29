@@ -2919,7 +2919,7 @@ bool loadPemFileFromSerial(SettingsField field, bool oldDataIsValid) {
     }
     else {
         if (strncmp(header.charBegin(), "-----BEGIN PRIVATE KEY-----", 150)) {
-            serialStream << "Error: Expected certificate pem header\r\n";
+            serialStream << "Error: Expected private key pem header\r\n";
             return false;
         }
     }
