@@ -2949,11 +2949,14 @@ bool loadPemFileFromSerial(SettingsField field, bool oldDataIsValid) {
         return false;
     }
 
-    Serial.readBytesUntil('D', (char*)header.begin(), header.length());
-    if (!strstr(header.charBegin(), "-----EN")) {
+    readSerialLine(header);
+    readSerialLine(header);
+    if (!strstr(header.charBegin(), "-----END ")) {
         serialStream << "Expected certificate pem footer\r\n";
         return false;
     }
+
+    serialStream << "\r\n";
 
     Settings.setDerFileLength(field, derLengthOrError.value());
     Settings.setDerFile(field, derBuffer);
