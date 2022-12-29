@@ -779,7 +779,8 @@ private:
 template<typename T>
 class SerialBufferReader : public BufferReaderBase {
 public:
-    SerialBufferReader(T& serialIntf, const Buffer& buf) : serialInterface(serialIntf), buffer(buf) {}
+    SerialBufferReader(T& serialIntf, const Buffer& buf, u8 e)
+        : serialInterface{ serialIntf }, endChar{ e }, buffer{ buf } {}
 
     bool hasNext(u32 c = 1) const {
         return readIndex + c <= writeIndex;
@@ -857,10 +858,10 @@ private:
         }
 
         // Do try to read even more if the end char was just read
-        if (!(readAtLeast && writeIndex && buffer.at(writeIndex - 1) == 0x16)) {
-            writeIndex += serialInterface.readBytesUntil(0x16, (char*)&buffer[writeIndex], buffer.length() - writeIndex);
+        if (!(readAtLeast && writeIndex && buffer.at(writeIndex - 1) == endChar)) {
+            writeIndex += serialInterface.readBytesUntil(endChar, (char*)&buffer[writeIndex], buffer.length() - writeIndex);
             assert(writeIndex < buffer.length()); // Buffer was too small 
-            buffer[writeIndex++] = 0x16; // Add end byte
+            buffer[writeIndex++] = endChar; // Add end byte
         }
 
         return {};
@@ -876,6 +877,7 @@ private:
     }
 
     T& serialInterface;
+    u8 endChar;
     Buffer buffer;
     u32 readIndex{ 0 };
     u32 writeIndex{ 0 };
@@ -1353,6 +1355,7 @@ private:
 
 class MBusLinkFrame {
 public:
+    static constexpr u8 packetEndByte = 0x16;
     enum class Type : u8 { SingleChar, Short, Control, Long };
 
     MBusLinkFrame(Type type, u8 c = 0, u8 a = 0, u8 l = 0, Buffer p = { nullptr, 0 })
@@ -1374,7 +1377,7 @@ public:
             TRYGET(cField, reader.nextU8());
             TRYGET(aField, reader.nextU8());
             TRYGET(checksumField, reader.nextU8());
-            TRY(reader.assertU8(0x16));
+            TRY(reader.assertU8(packetEndByte));
 
             if (((cField + aField) & 0xFF) != checksumField) {
                 return Error{ "Checksum missmatch" };
@@ -1392,7 +1395,7 @@ public:
 
         TRYGET(userData, reader.slice(lField - 2));
         TRYGET(checksumField, reader.nextU8());
-        TRY(reader.assertU8(0x16));
+        TRY(reader.assertU8(packetEndByte));
 
         u8 checksum = cField + aField;
         for (auto b : userData) {
@@ -2843,7 +2846,7 @@ void runSetupWizard(bool oldDataIsValid) {
 
 ErrorOr<void> waitForAndProcessPacket() {
     LocalBuffer<600> serialReaderBuffer, applicationDataBuffer;
-    SerialBufferReader<decltype(Serial)> serialReader{ Serial, serialReaderBuffer };
+    SerialBufferReader<decltype(Serial)> serialReader{ Serial, serialReaderBuffer, MBusLinkFrame::packetEndByte };
 
     TRYGET(applicationFrame, DlmsApplicationFrame::decodeBuffer(serialReader, applicationDataBuffer));
     debugOut << "Received application frame\r\n";
