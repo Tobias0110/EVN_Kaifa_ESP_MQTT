@@ -1145,6 +1145,8 @@ public:
         MqttBrokerPath,
         MqttMessageMode,
         DslmCosemDecryptionKey,
+        WebServerSSLCertificate,
+        WebServerSSLKey,
 
         NumberOfFields
     };
@@ -1171,7 +1173,8 @@ public:
     u32 maxLength() const { return fields[type].maxLength; }
     const char* name() const { return fields[type].name; }
     const char* defaultValue() const { return fields[type].defaultValue; }
-    const Type enumType() const { return type; }
+    Type enumType() const { return type; }
+    bool isDerFile() const { return type == WebServerSSLCertificate || type == WebServerSSLKey; }
 
     bool isSecure() const {
         switch (type) {
@@ -1179,11 +1182,14 @@ public:
         case MqttBrokerPassword:
         case MqttCertificateFingerprint:
         case DslmCosemDecryptionKey:
+        case WebServerSSLCertificate:
+        case WebServerSSLKey:
             return true;
         default:
             return false;
         }
     }
+
 
     ErrorOr<void> validate(Buffer& buffer) const {
         auto validateAndCompactHexString = [&buffer](i32 numDigits) -> ErrorOr<void> {
@@ -1299,7 +1305,9 @@ const SettingsField::FieldInfo SettingsField::fields[SettingsField::NumberOfFiel
     {MqttBrokerClientId, "mqtt broker client id", nullptr, 21},
     {MqttBrokerPath, "mqtt broker path", nullptr, 101},
     {MqttMessageMode, "mqtt message mode (0 - raw, 1 - topics, 2 - json)", "2", 2},
-    {DslmCosemDecryptionKey, "dslm/cosem decryption key (meter key)", nullptr, 33}
+    {DslmCosemDecryptionKey, "dslm/cosem decryption key (meter key)", nullptr, 33},
+    {WebServerSSLCertificate, "web server ssl certificate", "[default]", 1000},
+    {WebServerSSLKey, "web server ssl private key", "[default]", 1300},
 };
 
 template<typename T>
@@ -2682,7 +2690,9 @@ const char* eepromInitData[] = {
     "client-id",         // MqttBrokerClientId
     "a/base/path",       // MqttBrokerPath
     "2",                 // MqttMessageMode
-    "36C66639E48A8CA4D6BC8B282A793BBB" // DslmCosemDecryptionKey (example provided by EVN)
+    "36C66639E48A8CA4D6BC8B282A793BBB", // DslmCosemDecryptionKey (example provided by EVN)
+    "\0\0\0",            // WebServerSSLCertificate
+    "\0\0\0",            // WebServerSSLKey
 };
 
 using WiFiClient = DummyWiFiClient;
@@ -2701,6 +2711,7 @@ void loop();
 
 int main()
 {
+
     setup();
 
     Serial.setReadSourceFromBuffer(true);
@@ -2724,6 +2735,7 @@ LocalBuffer<16> dlmsDecryptionKey;
 // The domain has to be stored globally, because the PubSubClient lib does not create
 // a copy of the string it is provided. The lifetime has to be managed by the user (us).
 LocalBuffer<21> mqttServerDomain;
+
 
 void flushSerial() {
     while (Serial.available()) {
@@ -2930,7 +2942,7 @@ void setup() {
     Serial.println("Starting smart meter mqtt gateway v2.0");
     Serial.println("Initializing...");
 
-    constexpr auto EEPROMBytesToLoad = 1024;
+    constexpr auto EEPROMBytesToLoad = 2700;
     assert(EEPROMBytesToLoad >= SettingsField::requiredStorage() + 4);
     EEPROM.begin(EEPROMBytesToLoad);
 
