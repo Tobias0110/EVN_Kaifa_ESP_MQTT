@@ -1170,6 +1170,8 @@ public:
         return offset;
     }
 
+    bool operator==(const SettingsField& x) const { return type == x.type; }
+
     u32 maxLength() const { return fields[type].maxLength; }
     const char* name() const { return fields[type].name; }
     const char* defaultValue() const { return fields[type].defaultValue; }
@@ -2753,6 +2755,8 @@ PubSubClient pubsubClient{};
 EEPROMSettings<decltype(EEPROM)> Settings{ EEPROM };
 NoStl::UniquePtr<MqttSender> mqttSender;
 LocalBuffer<16> dlmsDecryptionKey;
+LocalBuffer<1300> webServerCustomSSLPrivateKey;
+LocalBuffer<1000> webServerCustomSSLCertificate;
 
 // The domain has to be stored globally, because the PubSubClient lib does not create
 // a copy of the string it is provided. The lifetime has to be managed by the user (us).
@@ -2874,6 +2878,89 @@ void initMqtt() {
     }
 }
 
+bool loadPemFileFromSerial(SettingsField field, bool oldDataIsValid) {
+    assert(field.isDerFile());
+
+    SerialStream serialStream{ Serial };
+
+    if (oldDataIsValid) {
+        u16 storedDataLength = Settings.getDerFileLength(field);
+
+        serialStream << " or just press enter to confirm the current settings ";
+        if (storedDataLength) {
+            serialStream << "(<custom-bytes>)\r\n";
+        }
+        else {
+            serialStream << "([default])\r\n";
+        }
+    }
+    else {
+        serialStream << " or just press enter to confirm the default ssl settings ([default]) \r\n";
+    }
+
+    LocalBuffer<150> header;
+    auto length = readSerialLine(header);
+    serialStream << "\r\n";
+
+    if (!length && oldDataIsValid) {
+        return true;
+    }
+
+    if ((!length && !oldDataIsValid) || !strncmp(header.charBegin(), "[default]", 150)) {
+        Settings.setDerFileLength(field, 0);
+        return true;
+    }
+
+    if (field == SettingsField::WebServerSSLCertificate) {
+        if (strncmp(header.charBegin(), "-----BEGIN CERTIFICATE-----", 150)) {
+            serialStream << "Error: Expected certificate pem header\r\n";
+            return false;
+        }
+    }
+    else {
+        if (strncmp(header.charBegin(), "-----BEGIN PRIVATE KEY-----", 150)) {
+            serialStream << "Error: Expected certificate pem header\r\n";
+            return false;
+        }
+    }
+
+    SerialUnbufferedReader<decltype(Serial)> reader{ Serial };
+    Buffer& derBuffer = (field == SettingsField::WebServerSSLCertificate)
+        ? static_cast<Buffer&>(webServerCustomSSLCertificate)
+        : static_cast<Buffer&>(webServerCustomSSLPrivateKey);
+
+    auto derLengthOrError = derBuffer.parseBase64(reader);
+    if (derLengthOrError.isError()) {
+        serialStream << "Error: Could not parse base64: " << derLengthOrError.error().message() << "\r\n";
+        return false;
+    }
+
+    if (derLengthOrError.value() >= derBuffer.length()) {
+        serialStream << "Error: Too much data received. (Max pem file size ";
+        return false;
+    }
+
+    derBuffer.shrinkLength(derLengthOrError.value());
+    //derBuffer.printHex(debugOut);
+
+    // Sanity check, that DER file starts with a SEQUENCE tag (0x30)
+    if (derBuffer[0] != 0x30) {
+        serialStream << "Error: Invalid data format.\r\n";
+        return false;
+    }
+
+    Serial.readBytesUntil('D', (char*)header.begin(), header.length());
+    if (!strstr(header.charBegin(), "-----EN")) {
+        serialStream << "Expected certificate pem footer\r\n";
+        return false;
+    }
+
+    Settings.setDerFileLength(field, derLengthOrError.value());
+    Settings.setDerFile(field, derBuffer);
+
+    return true;
+}
+
 void runSetupWizard(bool oldDataIsValid) {
     flushSerial();
     SerialStream serialStream{ Serial };
@@ -2881,6 +2968,15 @@ void runSetupWizard(bool oldDataIsValid) {
     SettingsField::forEach([&](SettingsField field) {
         while (true) {
             serialStream << "Enter value for '" << field.name() << '\'';
+
+            if (field.isDerFile()) {
+                auto ok = loadPemFileFromSerial(field, oldDataIsValid);
+                flushSerial();
+                if (ok) {
+                    break;
+                }
+                continue;
+            }
 
             // Try to get a default value
             LocalBuffer<150> oldValueBuffer;
