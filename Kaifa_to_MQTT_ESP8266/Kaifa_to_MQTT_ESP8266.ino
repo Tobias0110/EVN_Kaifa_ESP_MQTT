@@ -2773,8 +2773,8 @@ u32 readSerialLine(Buffer& buffer) {
             continue;
         }
 
-        // Return key
-        if (c == 0x0d) {
+        // Return key or new line
+        if (c == 0x0d || c == 0xa) {
             break;
         }
 
