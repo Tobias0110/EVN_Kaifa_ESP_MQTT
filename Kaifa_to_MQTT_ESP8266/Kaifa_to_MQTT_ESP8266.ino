@@ -2963,6 +2963,7 @@ bool loadPemFileFromSerial(SettingsField field, bool oldDataIsValid) {
 
 void runSetupWizard(bool oldDataIsValid) {
     flushSerial();
+    Serial.setTimeout(10000);
     SerialStream serialStream{ Serial };
 
     SettingsField::forEach([&](SettingsField field) {
