@@ -499,6 +499,64 @@ public:
         }
     }
 
+    template<typename T>
+    ErrorOr<u32> parseBase64(T reader) {
+        auto nextCharToBits = [&]() -> ErrorOr<u8> {
+
+            u8 x;
+            do {
+                TRYGET(c, reader.nextU8());
+                x = c;
+            } while (x == ' ' || x == '\r' || x == '\n');
+
+            if (x >= 'A' && x <= 'Z') {
+                return (u8)(x - 'A');
+            }
+            if (x >= 'a' && x <= 'z') {
+                return (u8)(x - 'a' + 0x1a);
+            }
+            if (x >= '0' && x <= '9') {
+                return (u8)(x - '0' + 0x34);
+            }
+            switch (x) {
+            case '+': return (u8)0x3e;
+            case '/': return (u8)0x3f;
+            case '=': return (u8)0xf0;
+            default: return Error{ "Bad Base64 character" };
+            }
+        };
+
+        u32 bytesDecoded = 0;
+        while (reader.hasNext() && bytesDecoded < byteCount) {
+            TRYGET(a, nextCharToBits());
+            TRYGET(b, nextCharToBits());
+            TRYGET(c, nextCharToBits());
+            TRYGET(d, nextCharToBits());
+
+            if (a == 0xf0 || b == 0xf0) {
+                return Error{ "Bad Base64 format" };
+            }
+
+            if (c == 0xf0) {
+                ptr[bytesDecoded++] = (a << 2) | (b >> 4);
+                break;
+            }
+
+            if (d == 0xf0) {
+                ptr[bytesDecoded++] = (a << 2) | (b >> 4);
+                ptr[bytesDecoded++] = (b << 4) | (c >> 2);
+                break;
+            }
+
+            u32 bits = (a << 18) | (b << 12) | (c << 6) | d;
+            ptr[bytesDecoded++] = bits >> 16;
+            ptr[bytesDecoded++] = (bits >> 8) & 0xff;
+            ptr[bytesDecoded++] = bits & 0xff;
+        }
+
+        return bytesDecoded;
+    }
+
     static OwnedBuffer allocate(u32 size);
     static ErrorOr<OwnedBuffer> fromHexString(const char* hexString);
 
