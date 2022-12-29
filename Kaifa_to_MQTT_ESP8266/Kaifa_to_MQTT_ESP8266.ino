@@ -40,6 +40,8 @@
 #include <iomanip>
 #include <cassert>
 #include <conio.h>
+#include <stdio.h>
+#include <windows.h>
 
 #include "Crypto-0.4.0/src/Crypto.h"
 #include "Crypto-0.4.0/src/AES.h"
@@ -2321,14 +2323,20 @@ private:
 
 class DummySerial {
 public:
-    DummySerial(OwnedBuffer buf) : buffer(NoStl::move(buf)) {}
+    DummySerial(OwnedBuffer buf) : buffer(NoStl::move(buf)) {
+        stdinHandle = GetStdHandle(STD_INPUT_HANDLE);
+    }
 
     void begin(u32, u32) { didBegin = true; }
     void end() { didBegin = false; }
     void setTimeout(u32) {}
 
     u32 available() {
-        return 0;
+        if (!readFromBuffer) {
+            return WaitForSingleObject(stdinHandle, 0) == WAIT_OBJECT_0;
+        }
+
+        return index < buffer.length();
     }
 
     void setReadSourceFromBuffer(bool b) {
@@ -2436,6 +2444,7 @@ private:
 
     u32 index{ 0 };
     OwnedBuffer buffer;
+    HANDLE stdinHandle;
 };
 
 class DummyWiFiClient {
