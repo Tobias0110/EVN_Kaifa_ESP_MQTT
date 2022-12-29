@@ -166,6 +166,8 @@ class LocalBuffer;
 class OwnedBuffer;
 template<typename>
 class IndexReader;
+template<typename>
+class SerialUnbufferedReader;
 class BufferReaderBase;
 class BufferReader;
 template<typename>
@@ -442,6 +444,7 @@ public:
     using ErrorOr<EmptyType>::ErrorOr;
 };
 
+
 class Buffer {
 public:
     Buffer(u8* p, u32 l) : ptr(p), byteCount(l) {}
@@ -639,6 +642,27 @@ ErrorOr<OwnedBuffer> Buffer::fromHexString(const char* hexString) {
 
     return { NoStl::move(buffer) };
 }
+
+template<typename T>
+class SerialUnbufferedReader {
+public:
+    SerialUnbufferedReader(T& s) : serial{ s } {}
+
+    bool hasNext(u32 c = 1) const {
+        return true;
+    }
+
+    ErrorOr<u8> nextU8() {
+        u8 c;
+        if (serial.readBytes(&c, 1) != 1) {
+            return Error{ "Could not read byte from serial" };
+        }
+        return c;
+    }
+
+private:
+    T& serial;
+};
 
 class BufferReaderBase {
 protected:
