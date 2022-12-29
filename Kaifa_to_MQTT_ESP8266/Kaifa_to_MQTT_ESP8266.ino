@@ -1339,6 +1339,12 @@ public:
         buffer[maxLength - 1] = '\0';
     }
 
+    u16 getDerFileLength(SettingsField field) {
+        assert(field.isDerFile());
+        auto offset = field.calcOffset();
+        return (eeprom[offset + 1] << 8) | eeprom[offset];
+    }
+
     void getBytes(SettingsField field, Buffer& buffer) {
         assert(buffer.length() >= (field.maxLength() - 1) / 2); // Ignore the null termination byte and convert nibble count to byte count
 
@@ -1353,10 +1359,10 @@ public:
         eeprom.commit();
     }
 
-    void set(SettingsField field, const Buffer& buffer) {
+    void set(SettingsField field, const Buffer& buffer, u32 writeOffset = 0) {
         auto offset = field.calcOffset();
 
-        for (u32 i = 0; i != field.maxLength() && i != buffer.length(); i++) {
+        for (u32 i = writeOffset; i < field.maxLength() && i < buffer.length(); i++) {
             eeprom[offset + i] = buffer[i];
 
             if (buffer[i] == '\0') {
@@ -1367,9 +1373,25 @@ public:
         eeprom[offset + field.maxLength() - 1] = '\0';
     }
 
+    void setDerFile(SettingsField field, const Buffer& buffer) {
+        assert(field.isDerFile());
+        set(field, buffer, 2);
+    }
+
+    void setDerFileLength(SettingsField field, u16 value) {
+        assert(field.isDerFile());
+        auto offset = field.calcOffset();
+        eeprom[offset + 1] = value >> 8;
+        eeprom[offset] = value & 0xff;
+    }
+
     template<typename U>
     void printConfiguration(U& stream) {
         SettingsField::forEach([&](SettingsField field) {
+            if (field.isDerFile()) {
+                auto length = getDerFileLength(field);
+                stream << "* " << field.name() << ": " << (!length ? "[default]" : "<custom-bytes>") << "\r\n";
+            }
             // Hide password fields
             if (!field.isSecure()) {
                 LocalBuffer<110> buffer;
