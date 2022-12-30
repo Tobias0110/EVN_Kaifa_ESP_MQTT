@@ -1361,10 +1361,10 @@ public:
         eeprom.commit();
     }
 
-    void set(SettingsField field, const Buffer& buffer, u32 writeOffset = 0) {
+    void set(SettingsField field, const Buffer& buffer) {
         auto offset = field.calcOffset();
 
-        for (u32 i = writeOffset; i < field.maxLength() && i < buffer.length(); i++) {
+        for (u32 i = 0; i < field.maxLength() && i < buffer.length(); i++) {
             eeprom[offset + i] = buffer[i];
 
             if (buffer[i] == '\0') {
@@ -1377,7 +1377,11 @@ public:
 
     void setDerFile(SettingsField field, const Buffer& buffer) {
         assert(field.isDerFile());
-        set(field, buffer, 2);
+        auto offset = field.calcOffset();
+
+        for (u32 i = 0; i+ 2 < field.maxLength() && i < buffer.length(); i++) {
+            eeprom[offset + i+ 2] = buffer[i];
+        }
     }
 
     void setDerFileLength(SettingsField field, u16 value) {
