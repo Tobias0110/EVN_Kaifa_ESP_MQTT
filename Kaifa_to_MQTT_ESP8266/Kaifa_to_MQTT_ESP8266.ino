@@ -2612,7 +2612,7 @@ u32 readSerialLine(Buffer& buffer) {
 }
 
 void connectToWifi() {
-    WiFi.hostname("Power Meter Mqtt Gateway");
+    WiFi.hostname("Stromzaehler");
 
     LocalBuffer<100> ssid, password;
     Settings.getCString(SettingsField::WifiSSID, ssid);
