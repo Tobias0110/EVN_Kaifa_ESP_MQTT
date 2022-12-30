@@ -1096,6 +1096,17 @@ public:
             return {};
         };
 
+        auto validateDomainNameASCII = [&buffer]() -> ErrorOr<void> {
+            for (u32 i = 0; i != buffer.length() - 1; i++) {
+                auto c= buffer[i];
+                if ( !(c >= 'A' && c <= 'Z') && !(c >= 'a' && c <= 'z') && !(c >= '0' && c <= '9') && (c != '.') && (c != '-') ) {
+                    return Error{ "Bad domain name character found. Expected range is [a-zA-Z0-9.-]" };
+                }
+            }
+
+            return {};
+        };
+
         auto validateLength = [&buffer](u32 len) -> ErrorOr<void> {
             if (buffer.length()-1 != len) {
                 return Error{ "" };
@@ -1104,6 +1115,15 @@ public:
         };
 
         switch (type) {
+        case MqttBrokerAddress:
+          if( buffer.length() < 2 || buffer.length() > 63 ) {
+            return Error{ "Bad domain name length. Expected range is 2..63" };
+          }
+          if( buffer[0] == '-' ) {
+            return Error{ "Bad domain name. May not begin with '-'"};
+          }
+          TRY(validateDomainNameASCII());
+          break;
         case MqttBrokerPort:
             for (u32 i = 0; i != buffer.length()-1; i++) {
                 if (buffer[i] < '0' || buffer[i] > '9') {
