@@ -988,6 +988,10 @@ public:
             sender.appendField(value);
         }
 
+        void appendField(const char* name, const char* value) {
+            sender.appendField(name, value);
+        }
+
     private:
         MqttSender& sender;
     };
@@ -1000,6 +1004,7 @@ protected:
     virtual void appendField(const CosemTimestamp&) = 0;
     virtual void appendField(const CosemScaledValue&) = 0;
     virtual void appendField(const CosemMeterNumber&) = 0;
+    virtual void appendField(const char* name, const char* value) = 0;
     virtual void endFieldTransmission() = 0;
 };
 
@@ -1061,20 +1066,20 @@ public:
     ErrorOr<void> validate(Buffer& buffer) const {
         auto validateAndCompactHexString = [&buffer](i32 numDigits) -> ErrorOr<void> {
             u32 compactingOffset = 0;
-            for (u32 i = 0; i != buffer.length()-1; i++) {
+            for (u32 i = 0; i != buffer.length() - 1; i++) {
                 auto c = buffer[i];
                 if (!(c >= 'a' && c <= 'f') && !(c >= 'A' && c <= 'F') && !(c >= '0' && c <= '9') && (c != ' ')) {
                     return Error{ "Bad hex character. Expected range is [a-fA-F0-9 ]" };
                 }
-                
-                if(c != ' ') {
+
+                if (c != ' ') {
                     buffer[compactingOffset++] = c;
                     numDigits--;
                 }
             }
 
             buffer[compactingOffset] = '\0';
-            buffer.shrinkLength(compactingOffset+1);
+            buffer.shrinkLength(compactingOffset + 1);
 
             if (numDigits > 0) {
                 return Error{ "Too few hex digits" };
@@ -1096,16 +1101,36 @@ public:
             return {};
         };
 
+        auto validateDomainNameASCII = [&buffer]() -> ErrorOr<void> {
+            for (u32 i = 0; i != buffer.length() - 1; i++) {
+                auto c = buffer[i];
+                if (!(c >= 'A' && c <= 'Z') && !(c >= 'a' && c <= 'z') && !(c >= '0' && c <= '9') && (c != '.') && (c != '-')) {
+                    return Error{ "Bad domain name character found. Expected range is [a-zA-Z0-9.-]" };
+                }
+            }
+
+            return {};
+        };
+
         auto validateLength = [&buffer](u32 len) -> ErrorOr<void> {
-            if (buffer.length()-1 != len) {
+            if (buffer.length() - 1 != len) {
                 return Error{ "" };
             }
             return {};
         };
 
         switch (type) {
+        case MqttBrokerAddress:
+            if (buffer.length() < 2 || buffer.length() > 63) {
+                return Error{ "Bad domain name length. Expected range is 2..63" };
+            }
+            if (buffer[0] == '-') {
+                return Error{ "Bad domain name. May not begin with '-'" };
+            }
+            TRY(validateDomainNameASCII());
+            break;
         case MqttBrokerPort:
-            for (u32 i = 0; i != buffer.length()-1; i++) {
+            for (u32 i = 0; i != buffer.length() - 1; i++) {
                 if (buffer[i] < '0' || buffer[i] > '9') {
                     return Error{ "Bad digit. Expected positive integer" };
                 }
@@ -2052,8 +2077,7 @@ public:
         }
     }
 
-    void mqttPublish(MqttSender& sender) {
-        auto transmission = sender.transmitFields();
+    void mqttPublish(MqttSender::FieldTransmission& transmission) {
         transmission.appendField(meterNumber);
         transmission.appendField(timestamp);
 
@@ -2149,6 +2173,7 @@ protected:
     virtual void appendField(const CosemTimestamp& timestamp) override {}
     virtual void appendField(const CosemScaledValue& value) override {}
     virtual void appendField(const CosemMeterNumber&) override {}
+    virtual void appendField(const char* name, const char* value) override {}
     virtual void endFieldTransmission() override {}
 };
 
@@ -2184,6 +2209,8 @@ protected:
         this->client.publish(this->path, printer.cString(), false);
     }
 
+    virtual void appendField(const char* name, const char* value) override {}
+
     virtual void endFieldTransmission() override {}
 };
 
@@ -2206,15 +2233,19 @@ protected:
     }
 
     virtual void appendField(const CosemMeterNumber& meterNumber) override {
-        beginField("meternumber");
-        printer.printChar('"');
-        printer.print(meterNumber.cString());
-        printer.printChar('"');
+        appendField("meternumber", meterNumber.cString());
     }
 
     virtual void appendField(const CosemScaledValue& value) override {
         beginField(value.fieldLabel().endpoint());
         value.serialize(printer);
+    }
+
+    void appendField(const char* name, const char* value) override {
+        beginField(name);
+        printer.printChar('"');
+        printer.print(value);
+        printer.printChar('"');
     }
 
     void init() {
@@ -2266,6 +2297,22 @@ private:
 #define LOW    0x00
 #define HIGH   0x01
 #define WL_CONNECTED 0x0A
+
+class DummyIPAddress {
+public:
+    DummyIPAddress(u8 a, u8 b, u8 c, u8 d) : octets{ a, b, c, d } {}
+
+    u8 operator[](u8 x) const {
+        return octets[x];
+    }
+private:
+    u8 octets[4];
+};
+
+std::ostream& operator<<(std::ostream& o, const DummyIPAddress addr) {
+    o << addr[0] << '.' << addr[1] << '.' << addr[2] << '.' << addr[3];
+    return o;
+}
 
 class DummySerial {
 public:
@@ -2364,6 +2411,12 @@ public:
     u32 print(u32 val) {
         assert(didBegin);
         std::cout << val;
+        return 1;
+    }
+
+    u32 print(const DummyIPAddress& addr) {
+        assert(didBegin);
+        std::cout << addr;
         return 1;
     }
 
@@ -2480,7 +2533,8 @@ public:
 
     void hostname(const char*) {}
 
-    const char* localIP() const { return "<dummy-ip>"; }
+    DummyIPAddress localIP() const { return {1,2,3,4}; }
+    i8 RSSI() const { return -83; }
 
     void begin(const char* ssid, const char* pwd) {
         std::cout << "[!] WIFI ssid: '" << ssid << "' password: '" << pwd << "'\r\n";
@@ -2594,7 +2648,7 @@ u32 readSerialLine(Buffer& buffer) {
         }
 
         // Backspace key
-        if (c == 0x08 ) {
+        if (c == 0x08) {
             if (index > 0) {
                 buffer[--index] = '\0';
                 Serial.print("\r\n");
@@ -2612,7 +2666,7 @@ u32 readSerialLine(Buffer& buffer) {
 }
 
 void connectToWifi() {
-    WiFi.hostname("Power Meter Mqtt Gateway");
+    WiFi.hostname("Stromzaehler");
 
     LocalBuffer<100> ssid, password;
     Settings.getCString(SettingsField::WifiSSID, ssid);
@@ -2733,7 +2787,7 @@ void runSetupWizard(bool oldDataIsValid) {
                 length = 149;
             }
             buffer[length] = '\0';
-            buffer.shrinkLength(length+1);
+            buffer.shrinkLength(length + 1);
 
             // Validation
             auto validationError = field.validate(buffer);
@@ -2768,7 +2822,22 @@ ErrorOr<void> waitForAndProcessPacket() {
 #endif
     TRY(mqttSender->connect());
     mqttSender->publishRaw(serialReader.allDataRead());
-    cosemData.mqttPublish(*mqttSender);
+    {
+        auto transmission = mqttSender->transmitFields();
+        cosemData.mqttPublish(transmission);
+
+        LocalBuffer<20> printBuffer;
+        BufferPrinter printer{ printBuffer };
+
+        // Append additional fields only sent via JSON
+        auto ip = WiFi.localIP();
+        printer.printUnsigned(ip[0]).printChar('.').printUnsigned(ip[1]).printChar('.').printUnsigned(ip[2]).printChar('.').printUnsigned(ip[3]);
+        transmission.appendField("ip", printer.cString());
+
+        printer.clear();
+        printer.print((i16)WiFi.RSSI()).print("dBm");
+        transmission.appendField("rssi", printer.cString());
+    }
 
     return {};
 }
