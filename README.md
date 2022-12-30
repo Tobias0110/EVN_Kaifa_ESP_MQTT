@@ -108,6 +108,8 @@ The json object has the following format.
 | i2          | number        | current on phase 2 | Momentary current measured on phase 2 |
 | i3          | number        | current on phase 3 | Momentary current measured on phase 3 |
 | phi         | number        | power factor | Momentary power factor |
+| ip          | string        || IP address received via DHCP |
+| rssi        | string        | Received Signal Strength Indicator | Strength of the wifi signal in `dBm` |
 
 The following JSON is an example package sent by the microcontroller.
 ```json
@@ -124,7 +126,9 @@ The following JSON is an example package sent by the microcontroller.
   "i1": 0,
   "i2": 0,
   "i3":0 ,
-  "phi":1.000
+  "phi":1.000,
+  "ip": "192.168.143.51",
+  "rssi": "-52dBm"
 }
 ```
 
