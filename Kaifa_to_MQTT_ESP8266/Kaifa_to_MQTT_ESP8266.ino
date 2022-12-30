@@ -603,6 +603,10 @@ class LocalBuffer : public Buffer {
 public:
     LocalBuffer() : Buffer(storage, Length) {}
 
+    void resetLength() {
+        byteCount = Length;
+    }
+
 private:
     u8 storage[Length];
 };
@@ -3038,6 +3042,9 @@ void runSetupWizard(bool oldDataIsValid) {
 
     serialStream << "Committing EEPROM...\r\n";
     Settings.save();
+
+    webServerCustomSSLPrivateKey.resetLength();
+    webServerCustomSSLCertificate.resetLength();
 }
 
 ErrorOr<void> waitForAndProcessPacket() {
