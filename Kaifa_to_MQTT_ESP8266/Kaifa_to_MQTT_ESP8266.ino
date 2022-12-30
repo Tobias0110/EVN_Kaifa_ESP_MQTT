@@ -1390,6 +1390,7 @@ public:
 
     void setDerFileLength(SettingsField field, u16 value) {
         assert(field.isDerFile());
+        assert(value <= (field.maxLength() - 2));
         auto offset = field.calcOffset();
         eeprom[offset + 1] = value >> 8;
         eeprom[offset] = value & 0xff;
