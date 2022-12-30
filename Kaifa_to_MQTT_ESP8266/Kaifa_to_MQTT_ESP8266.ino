@@ -1066,20 +1066,20 @@ public:
     ErrorOr<void> validate(Buffer& buffer) const {
         auto validateAndCompactHexString = [&buffer](i32 numDigits) -> ErrorOr<void> {
             u32 compactingOffset = 0;
-            for (u32 i = 0; i != buffer.length()-1; i++) {
+            for (u32 i = 0; i != buffer.length() - 1; i++) {
                 auto c = buffer[i];
                 if (!(c >= 'a' && c <= 'f') && !(c >= 'A' && c <= 'F') && !(c >= '0' && c <= '9') && (c != ' ')) {
                     return Error{ "Bad hex character. Expected range is [a-fA-F0-9 ]" };
                 }
-                
-                if(c != ' ') {
+
+                if (c != ' ') {
                     buffer[compactingOffset++] = c;
                     numDigits--;
                 }
             }
 
             buffer[compactingOffset] = '\0';
-            buffer.shrinkLength(compactingOffset+1);
+            buffer.shrinkLength(compactingOffset + 1);
 
             if (numDigits > 0) {
                 return Error{ "Too few hex digits" };
@@ -1103,8 +1103,8 @@ public:
 
         auto validateDomainNameASCII = [&buffer]() -> ErrorOr<void> {
             for (u32 i = 0; i != buffer.length() - 1; i++) {
-                auto c= buffer[i];
-                if ( !(c >= 'A' && c <= 'Z') && !(c >= 'a' && c <= 'z') && !(c >= '0' && c <= '9') && (c != '.') && (c != '-') ) {
+                auto c = buffer[i];
+                if (!(c >= 'A' && c <= 'Z') && !(c >= 'a' && c <= 'z') && !(c >= '0' && c <= '9') && (c != '.') && (c != '-')) {
                     return Error{ "Bad domain name character found. Expected range is [a-zA-Z0-9.-]" };
                 }
             }
@@ -1113,7 +1113,7 @@ public:
         };
 
         auto validateLength = [&buffer](u32 len) -> ErrorOr<void> {
-            if (buffer.length()-1 != len) {
+            if (buffer.length() - 1 != len) {
                 return Error{ "" };
             }
             return {};
@@ -1121,16 +1121,16 @@ public:
 
         switch (type) {
         case MqttBrokerAddress:
-          if( buffer.length() < 2 || buffer.length() > 63 ) {
-            return Error{ "Bad domain name length. Expected range is 2..63" };
-          }
-          if( buffer[0] == '-' ) {
-            return Error{ "Bad domain name. May not begin with '-'"};
-          }
-          TRY(validateDomainNameASCII());
-          break;
+            if (buffer.length() < 2 || buffer.length() > 63) {
+                return Error{ "Bad domain name length. Expected range is 2..63" };
+            }
+            if (buffer[0] == '-') {
+                return Error{ "Bad domain name. May not begin with '-'" };
+            }
+            TRY(validateDomainNameASCII());
+            break;
         case MqttBrokerPort:
-            for (u32 i = 0; i != buffer.length()-1; i++) {
+            for (u32 i = 0; i != buffer.length() - 1; i++) {
                 if (buffer[i] < '0' || buffer[i] > '9') {
                     return Error{ "Bad digit. Expected positive integer" };
                 }
@@ -2648,7 +2648,7 @@ u32 readSerialLine(Buffer& buffer) {
         }
 
         // Backspace key
-        if (c == 0x08 ) {
+        if (c == 0x08) {
             if (index > 0) {
                 buffer[--index] = '\0';
                 Serial.print("\r\n");
@@ -2787,7 +2787,7 @@ void runSetupWizard(bool oldDataIsValid) {
                 length = 149;
             }
             buffer[length] = '\0';
-            buffer.shrinkLength(length+1);
+            buffer.shrinkLength(length + 1);
 
             // Validation
             auto validationError = field.validate(buffer);
