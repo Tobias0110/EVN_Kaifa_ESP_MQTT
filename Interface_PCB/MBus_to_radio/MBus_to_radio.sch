@@ -176,9 +176,9 @@ EVN Kaifa M-Bus to TTL with power from bus
 Text Notes 7300 7250 0    50   ~ 0
 1 1
 Text Notes 8100 7650 0    50   ~ 0
-28. July 2022
+2nd January 2023
 Text Notes 10550 7650 0    50   ~ 0
-1
+2
 Text Notes 9400 7750 0    50   ~ 0
 Tobias Ecker OE3TEC
 Text Notes 3250 5850 1    50   ~ 0
