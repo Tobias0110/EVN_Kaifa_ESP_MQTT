@@ -19,7 +19,9 @@ is parsed to extract the measurement fields. These fields are then sent to an MQ
 broker in a preselected format. All relevant parameters can be configured via the
 serial console at startup and are saved to the EEPROM.
 
-![Complete assambly of the custom PCB and the ESP8266 on top](/device_pictures/interface_with_ESP.jpg)
+<p align="center">
+  <img alt="Complete assambly of the custom PCB and the ESP8266 on top" src="/device_pictures/interface_with_ESP.jpg" width="500">
+</p>
 
 ## 🔧 Installation
 > **Note**
@@ -64,7 +66,7 @@ WiFi SSID || SSID of the WiFi station to connect to |
 WiFI password || Password of the WiFi station to connect to |
 MQTT broker network address || Domain/IP of the MQTT broker server |
 MQTT broker network port | 1883 | Network port of the MQTT broker server |
-MQTT broker certificate fingerprint | [insecure] | Fingerprint of the SSL certificate of the MQTT broker server as hex string. If set to `[insecure]` TLS is disabled and all data is sent as plaint text |
+MQTT broker certificate fingerprint | [insecure] | SHA1 fingerprint of the SSL certificate of the MQTT broker server as hex string. If set to `[insecure]` TLS is disabled and all data is sent as plaint text |
 MQTT broker user name | power-meter | User name to authenticate at the MQTT broker server |
 MQTT broker password || Password to authenticate at the MQTT broker server |
 MQTT broker client id || Client id to register as at the MQTT broker server |
@@ -106,6 +108,8 @@ The json object has the following format.
 | i2          | number        | current on phase 2 | Momentary current measured on phase 2 |
 | i3          | number        | current on phase 3 | Momentary current measured on phase 3 |
 | phi         | number        | power factor | Momentary power factor |
+| ip          | string        || IP address received via DHCP |
+| rssi        | string        | Received Signal Strength Indicator | Strength of the wifi signal in `dBm` |
 
 The following JSON is an example package sent by the microcontroller.
 ```json
@@ -122,7 +126,9 @@ The following JSON is an example package sent by the microcontroller.
   "i1": 0,
   "i2": 0,
   "i3":0 ,
-  "phi":1.000
+  "phi":1.000,
+  "ip": "192.168.143.51",
+  "rssi": "-52dBm"
 }
 ```
 
@@ -166,7 +172,9 @@ useful to understand how the comunication should be implemented:
 * Python implementation of a [DLMS to XML converter](https://github.com/Gurux/Gurux.DLMS.Python/)
 
 ## ⚒ Hardware
-![Interface PCB version 2](/device_pictures/interface_pcb_V2.png)
+<p align="center">
+  <img alt="Interface PCB version 2" src="/device_pictures/interface_pcb_V2.png" width="400">
+</p>
 
 New in Version 2:
 * M-Bus over voltage protection: Protects the DC/DC converter from voltages outside its specs.
