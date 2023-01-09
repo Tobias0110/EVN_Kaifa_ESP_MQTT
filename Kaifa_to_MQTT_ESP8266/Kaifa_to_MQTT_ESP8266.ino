@@ -60,6 +60,7 @@
 
 #include <ESP8266WiFi.h>
 #include <WiFiClientSecure.h>
+#include <ESP8266WebServerSecure.h>
 #include <PubSubClient.h>
 #include <EEPROM.h>
 #include <Arduino.h>
@@ -2476,6 +2477,7 @@ private:
 #define LOW    0x00
 #define HIGH   0x01
 #define WL_CONNECTED 0x0A
+#define PROGMEM
 
 class DummyIPAddress {
 public:
@@ -2745,6 +2747,50 @@ private:
     u32 statusCounter{ 0 };
 };
 
+class DummyServerSessions {};
+
+class DummyX509List {
+public:
+    DummyX509List(const u8*, u32) {}
+    DummyX509List(const char*) {}
+};
+
+class DummyPrivateKey {
+public:
+    DummyPrivateKey(const u8*, u32) {}
+    DummyPrivateKey(const char*) {}
+};
+
+class DummyWiFiServerSecure {
+public:
+    void setRSACert(DummyX509List*, DummyPrivateKey*) {
+        std::cout << "[!] WebServer: Set certificate and private key" << std::endl;
+    }
+
+    void setCache(DummyServerSessions*) {}
+};
+
+class DummyWebServerSecure {
+public:
+    void begin() {
+        std::cout << "[!] WebServer: Begin" << std::endl;
+    }
+
+    DummyWiFiServerSecure getServer() {
+        return {};
+    }
+
+    template<typename T>
+    void on(const char*, const T&) {}
+    
+    template<typename T>
+    void onNotFound(const T&) {}
+
+    void send(u32 status, const char*, const char*) {}
+
+    void handleClient() {}
+};
+
 void delay(u32) {}
 void pinMode(u32, u32) {}
 void digitalWrite(u32, u32) {}
@@ -2794,12 +2840,22 @@ const char* eepromInitData[] = {
 using WiFiClient = DummyWiFiClient;
 using WiFiClientSecure = DummyWiFiClientSecure;
 
+namespace BearSSL {
+    using X509List = DummyX509List;
+    using PrivateKey = DummyPrivateKey;
+}
+
 DummyEEPROM EEPROM{ eepromInitData, true };
 
 DummySerial Serial{ NoStl::move(serialDataFrame.value()) };
 DummyWifi WiFi;
 NoStl::UniquePtr<WiFiClient> wifiClient;
 DummyPubSubClient pubsubClient;
+
+DummyServerSessions serverSessionsCache;
+NoStl::UniquePtr<DummyX509List> webServerCertificate;
+NoStl::UniquePtr<DummyPrivateKey> webServerPrivateKey;
+DummyWebServerSecure webServer;
 
 void setup();
 void loop();
@@ -2822,7 +2878,67 @@ int main()
 NoStl::UniquePtr<WiFiClient> wifiClient;
 PubSubClient pubsubClient{};
 
+static constexpr auto serverSessionsStorageCount = 3;
+BearSSL::ServerSession serverSessionsStorage[serverSessionsStorageCount];
+BearSSL::ServerSessions serverSessionsCache{ serverSessionsStorage, serverSessionsStorageCount };
+
+NoStl::UniquePtr<BearSSL::X509List> webServerCertificate;
+NoStl::UniquePtr<BearSSL::PrivateKey> webServerPrivateKey;
+BearSSL::ESP8266WebServerSecure webServer{ 443 };
+
 #endif
+
+static const char webServerDefaultSSLPrivateKeyData[] PROGMEM=
+    "-----BEGIN PRIVATE KEY-----\n"
+    "MIIEwAIBADANBgkqhkiG9w0BAQEFAASCBKowggSmAgEAAoIBAQDLvMyy8rvWwMmr\n"
+    "GrcronFVQ7ReXTAhzAjdlCyo2HQ39WDwRAJb26clRRL/rakw8EpGQS0we4pamhBB\n"
+    "HmR4Mb2lT9Q64ZGMu8tEOYxBr1uYM1PmkEfwFq6w6x2C/oeY+arMdSOa/KcnYuUn\n"
+    "JyboYqMhCECWPJzCQJMX3iayguBSa2bcVGqxaXevdLAeLNdavwh5F0AvBfGY0agU\n"
+    "6q8RUlHKRLMqBA7n0ZGnpAC1gWFuzQs9tgMu0zDdOeJ2zbOVPXDBizYgsvBL9GjK\n"
+    "MRoWJI2nulHLE8F72b0PaGscFJ9XquOMVoo4ldHhOv/3VxdovkahZSLtwA6EI4RL\n"
+    "F8SepC4ZAgMBAAECggEBAJZd3LJCBjKEjRL0n7XbqUulsYxnuKto/C4VOzTOtE/M\n"
+    "kWQivZ7wKZePOGttz05oOllJp0F+HGmsBU0aUkqHY5GLrnZanuLAg0/yLTsZYj+d\n"
+    "ulGTsRRYmUvH6zsQAiH8Onu2BLZRvEiMa9YOxl+C1ST/AzQevg98O1PFSMg9YbRR\n"
+    "cTcOVmfufodZaKWCYRjNhhuuUxP57HB/VWnKvvErw2hAwOa3kTrOK/qMcH7xP7RA\n"
+    "PRWJqot3FDw7tlzMXptvJHuBamLQ3lErUvlz3xxxcZ6z2AMBtZCWay88v/Lm5Dqd\n"
+    "o4o9e9NDmaDWWN8zErFdsiTAEfQXhewyGtD/BsFXo9ECgYEA5VoSkhVJ36/bl8Nq\n"
+    "UDX8pHF0YyVhkFh2XXuaLJfJ2Zud7x97VtJguIHqXzwchdi1wnjXfPA/4/2ojj+w\n"
+    "50o9qwCCn5aRSAIGofR/BZQ4s/Sd5j+bsiyzhIYZOwhG3CcCs2N9rQci7J36zKa+\n"
+    "Yq67bfDzLiPIwA1iGkl/Y7PuWx0CgYEA42jYI5LPEwQnw4OLfIlCE4hre4Ir6Wm/\n"
+    "DY7hwHqA0YsODQugjVlVL0lif2ig00eMYzexy7nAzYEOo8makKVYjUBphf+zcqna\n"
+    "yTJKkZ++Dt5pudsHjmkWsYR6PLksX4QqQQsylaoU85/navgq0hPJyKJgS9S32lbk\n"
+    "xjFo6lq0si0CgYEAvGkIRHW0oEvJa50fIxGWoEiLwj8dLQVfB2DYwLVZHqjWT3Bf\n"
+    "VG2zAx/Gt8Gb9OCYQFAhRgPfmJ3y8BimbPryOh5LMGryomL3q+g8yQqAomTbqiCq\n"
+    "+O3782xuIa6k94ocj921ioUITbViKOj6EftVAfYk78x5yDu2Ub37Jp7TuokCgYEA\n"
+    "p7WOkM2YQWHzIVFF8VYYkOcuvStGzyDZcVpKSvUNQ3vVpPFKOnQDSphIN8YltSsy\n"
+    "8YkFakVXVzcyYMAxaTNHlwRFzjjBUnLJk0+vhq3UMIr+Vb6eV/xQbCJTM60seFS0\n"
+    "BLwJVi7UvMbUmCLlEYDec0Ss17/Mxw0GMtQFl6/FSxECgYEAw6nRF6arWW/q1uii\n"
+    "3oHsjBw0vl7OuH4ykl8EaOf4T1DkG3l0zXwkA7i1wemrEhPO1/1kDKlW27LEuYXf\n"
+    "84oVNgfxt/zeDDSoD1B6xCxdEln68h+A9UVRIx1VfQG1lJti5ZePkvrHHoR/rXCB\n"
+    "GWMDJKW1Y0evqF8zvuyZ0wvcBjs=\n"
+    "-----END PRIVATE KEY-----\n";
+
+static const char webServerDefaultCertificateData[] PROGMEM =
+    "-----BEGIN CERTIFICATE-----\n"
+    "MIIDQzCCAiugAwIBAgIJAJxmg5ahlCD/MA0GCSqGSIb3DQEBCwUAMDcxCzAJBgNV\n"
+    "BAYTAkFUMRYwFAYDVQQIDA1Mb3dlciBBdXN0cmlhMRAwDgYDVQQKDAdlZ2ltb3Rv\n"
+    "MCAXDTIyMTIzMDIyMTAzMFoYDzIxMjEwNzI0MjIxMDMwWjA3MQswCQYDVQQGEwJB\n"
+    "VDEWMBQGA1UECAwNTG93ZXIgQXVzdHJpYTEQMA4GA1UECgwHZWdpbW90bzCCASIw\n"
+    "DQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAMu8zLLyu9bAyasatyuicVVDtF5d\n"
+    "MCHMCN2ULKjYdDf1YPBEAlvbpyVFEv+tqTDwSkZBLTB7ilqaEEEeZHgxvaVP1Drh\n"
+    "kYy7y0Q5jEGvW5gzU+aQR/AWrrDrHYL+h5j5qsx1I5r8pydi5ScnJuhioyEIQJY8\n"
+    "nMJAkxfeJrKC4FJrZtxUarFpd690sB4s11q/CHkXQC8F8ZjRqBTqrxFSUcpEsyoE\n"
+    "DufRkaekALWBYW7NCz22Ay7TMN054nbNs5U9cMGLNiCy8Ev0aMoxGhYkjae6UcsT\n"
+    "wXvZvQ9oaxwUn1eq44xWijiV0eE6//dXF2i+RqFlIu3ADoQjhEsXxJ6kLhkCAwEA\n"
+    "AaNQME4wHQYDVR0OBBYEFLJ7xtb3b//khVOHxSWVaDUgcdMVMB8GA1UdIwQYMBaA\n"
+    "FLJ7xtb3b//khVOHxSWVaDUgcdMVMAwGA1UdEwQFMAMBAf8wDQYJKoZIhvcNAQEL\n"
+    "BQADggEBAIQ6PoQ5nPNfhwM3boqQNJcJ9YT8pg9X9Jefcaj0WdFh2vy2hAzvmjhn\n"
+    "tlpSuajxNL3OqrZ521FQknJFg/uc7UiYssRG+RxqU7QOriSQPHMbNZIRE94daYqK\n"
+    "KxaKeyn3D9PAzkjmN9YQuTmbKF4ls9NV1vN479KzPMH6IwLydMm6qUybHuBVMGqS\n"
+    "OaVVuxm+TJxxbQSQwW2TPbetjqZ0piTeeYoRWMMzVemQMGo1YyyBwy/vsnGKNrvF\n"
+    "vDnyEUYJC8cgO5BrM7a7Ay9lupo7BBbaAi25AjKA5RbAoNzS5LYkfglBDPN53k+Q\n"
+    "gARMeDpuLXKHiW3OUTkh5LEIfzWJR7I=\n"
+    "-----END CERTIFICATE-----\n";
 
 EEPROMSettings<decltype(EEPROM)> Settings{ EEPROM };
 NoStl::UniquePtr<MqttSender> mqttSender;
@@ -2938,6 +3054,27 @@ void initMqtt() {
             break;
         }
     }
+}
+
+void initWebServer() {
+    webServerPrivateKey = NoStl::makeUnique<BearSSL::PrivateKey>(webServerDefaultSSLPrivateKeyData);
+    webServerCertificate = NoStl::makeUnique<BearSSL::X509List>(webServerDefaultCertificateData);
+
+    webServer.getServer().setRSACert(webServerCertificate.get(), webServerPrivateKey.get());
+    webServer.getServer().setCache(&serverSessionsCache);
+
+    webServer.on("/", []() {
+        debugOut << "Root route\r\n";
+        webServer.send(200, "text/plain", "this is the root page");
+        });
+
+    webServer.onNotFound([]() {
+        debugOut << "Route not found\r\n";
+        webServer.send(404, "text/plain", "unknown url");
+        });
+
+    debugOut << "Starting webserver" << debugEndl;
+    webServer.begin();
 }
 
 bool loadPemFileFromSerial(SettingsField field, bool oldDataIsValid) {
@@ -3194,6 +3331,8 @@ void setup() {
 
     initMqtt();
 
+    initWebServer();
+
     Settings.copyHexBytes(SettingsField::DslmCosemDecryptionKey, dlmsDecryptionKey);
 
     EEPROM.end();
@@ -3210,21 +3349,27 @@ void setup() {
 }
 
 void loop() {
-    // Heart beat LED blink
-    digitalWrite(D0, HIGH);
-    delay(100);
-    digitalWrite(D0, LOW);
-
     // Try to read a mbus packet and transmit it via mqtt
-    auto error = waitForAndProcessPacket();
-    if (error.isError()) {
-        debugOut << "\r\n\r\nCaught error in ::waitForAndProcessPacket: " << error.error().message() << debugEndl;
+    if (Serial.available()) {
+        debugOut << "Waiting..." << debugEndl;
+        auto error = waitForAndProcessPacket();
+        if (error.isError()) {
+            debugOut << "\r\n\r\nCaught error in ::waitForAndProcessPacket: " << error.error().message() << debugEndl;
 
-        u8 secondsWithoutSerialData = 0;
-        while ((Serial.available() > 0) || (secondsWithoutSerialData < 2)) {
-            flushSerial();
-            delay(1000);
-            secondsWithoutSerialData = !Serial.available() ? secondsWithoutSerialData + 1 : 0;
+            // Resync
+            u8 secondsWithoutSerialData = 0;
+            while ((Serial.available() > 0) || (secondsWithoutSerialData < 2)) {
+                flushSerial();
+                delay(1000);
+                secondsWithoutSerialData = !Serial.available() ? secondsWithoutSerialData + 1 : 0;
+            }
         }
+
+        // Heart beat LED blink
+        digitalWrite(D0, HIGH);
+        delay(100);
+        digitalWrite(D0, LOW);
     }
+
+    webServer.handleClient();
 }
