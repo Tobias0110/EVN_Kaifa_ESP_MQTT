@@ -1356,6 +1356,7 @@ public:
 
     void copyCString(SettingsField field, Buffer& buffer) {
         assert(buffer.length() >= field.maxLength());
+        assert(eeprom.getDataPtr());
         auto offset = field.calcOffset();
         auto maxLength = field.maxLength();
 
@@ -1364,6 +1365,7 @@ public:
     }
 
     Buffer getCStringBuffer(SettingsField field) {
+        assert(eeprom.getDataPtr());
         auto offset = field.calcOffset();
         auto maxLength = field.maxLength();
         auto ptr = eeprom.getDataPtr() + offset;
@@ -1392,6 +1394,7 @@ public:
     }
 
     void set(SettingsField field, const Buffer& buffer) {
+        assert(eeprom.getDataPtr());
         auto offset = field.calcOffset();
         auto maxLength = field.maxLength() < buffer.length() ? field.maxLength() : buffer.length();
 
@@ -1418,6 +1421,8 @@ public:
 
     template<typename U>
     void printConfiguration(U& stream) {
+        assert(eeprom.getDataPtr());
+
         SettingsField::forEach([&](SettingsField field) {
             if (field.isDerFile()) {
                 auto length = getDerFileLength(field);
@@ -2689,6 +2694,12 @@ public:
 
     void begin(u32 size) { didBegin = true; }
 
+    void end() {
+        std::cout << "[!] EEPROM ended\r\n";
+        didBegin = false;
+        buffer.free();
+    }
+
     void commit() {
         std::cout << "[!] EEPROM commit\r\n";
     }
@@ -3184,6 +3195,8 @@ void setup() {
     initMqtt();
 
     Settings.copyHexBytes(SettingsField::DslmCosemDecryptionKey, dlmsDecryptionKey);
+
+    EEPROM.end();
 
     // Setup serial connection for Mbus communication
     debugOut << "Switching serial connection to mbus mode" << debugEndl;
