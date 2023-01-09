@@ -2490,7 +2490,7 @@ private:
 };
 
 std::ostream& operator<<(std::ostream& o, const DummyIPAddress addr) {
-    o << addr[0] << '.' << addr[1] << '.' << addr[2] << '.' << addr[3];
+    o << (int)addr[0] << '.' << (int)addr[1] << '.' << (int)addr[2] << '.' << (int)addr[3];
     return o;
 }
 
@@ -2725,7 +2725,7 @@ public:
 
     void hostname(const char*) {}
 
-    DummyIPAddress localIP() const { return {1,2,3,4}; }
+    DummyIPAddress localIP() const { return { 1,2,3,4 }; }
     i8 RSSI() const { return -83; }
 
     void begin(const char* ssid, const char* pwd) {
