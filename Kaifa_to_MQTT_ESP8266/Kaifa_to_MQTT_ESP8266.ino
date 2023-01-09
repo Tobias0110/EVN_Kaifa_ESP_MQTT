@@ -1354,20 +1354,21 @@ public:
         return {};
     }
 
-    void getCString(SettingsField field, Buffer& buffer) {
+    void copyCString(SettingsField field, Buffer& buffer) {
         assert(buffer.length() >= field.maxLength());
         auto offset = field.calcOffset();
         auto maxLength = field.maxLength();
 
-        for (u32 idx = 0; idx < maxLength; idx++) {
-            u8 c = eeprom[offset + idx];
-            buffer[idx] = c;
-            if (!c) {
-                break;
-            }
-        }
-
+        strncpy((char*)buffer.begin(), (const char*)eeprom.getDataPtr() + offset, maxLength);
         buffer[maxLength - 1] = '\0';
+    }
+
+    Buffer getCStringBuffer(SettingsField field) {
+        auto offset = field.calcOffset();
+        auto maxLength = field.maxLength();
+        auto ptr = eeprom.getDataPtr() + offset;
+        auto len = strnlen((const char*)ptr, maxLength)+ 1;
+        return {ptr, len};
     }
 
     u16 getDerFileLength(SettingsField field) {
@@ -1376,7 +1377,7 @@ public:
         return (eeprom[offset + 1] << 8) | eeprom[offset];
     }
 
-    void getBytes(SettingsField field, Buffer& buffer) {
+    void copyHexBytes(SettingsField field, Buffer& buffer) {
         assert(buffer.length() >= (field.maxLength() - 1) / 2); // Ignore the null termination byte and convert nibble count to byte count
 
         auto offset = field.calcOffset();
@@ -1392,15 +1393,9 @@ public:
 
     void set(SettingsField field, const Buffer& buffer) {
         auto offset = field.calcOffset();
+        auto maxLength = field.maxLength() < buffer.length() ? field.maxLength() : buffer.length();
 
-        for (u32 i = 0; i < field.maxLength() && i < buffer.length(); i++) {
-            eeprom[offset + i] = buffer[i];
-
-            if (buffer[i] == '\0') {
-                break;
-            }
-        }
-
+        strncpy((char*)eeprom.getDataPtr() + offset, buffer.charBegin(), maxLength);
         eeprom[offset + field.maxLength() - 1] = '\0';
     }
 
@@ -1408,8 +1403,8 @@ public:
         assert(field.isDerFile());
         auto offset = field.calcOffset();
 
-        for (u32 i = 0; i+ 2 < field.maxLength() && i < buffer.length(); i++) {
-            eeprom[offset + i+ 2] = buffer[i];
+        for (u32 i = 0; i + 2 < field.maxLength() && i < buffer.length(); i++) {
+            eeprom[offset + i + 2] = buffer[i];
         }
     }
 
@@ -1430,8 +1425,7 @@ public:
             }
             // Hide password fields
             if (!field.isSecure()) {
-                LocalBuffer<110> buffer;
-                getCString(field, buffer);
+                auto buffer= getCStringBuffer(field);
                 stream << "* " << field.name() << ": " << buffer.charBegin() << "\r\n";
             }
             });
@@ -2711,6 +2705,10 @@ public:
         return buffer[idx];
     }
 
+    u8* getDataPtr() {
+        return buffer.begin();
+    }
+
 private:
     OwnedBuffer buffer;
     bool didBegin{ false };
@@ -2866,9 +2864,8 @@ u32 readSerialLine(Buffer& buffer) {
 void connectToWifi() {
     WiFi.hostname("Stromzaehler");
 
-    LocalBuffer<100> ssid, password;
-    Settings.getCString(SettingsField::WifiSSID, ssid);
-    Settings.getCString(SettingsField::WifiPassword, password);
+    const auto ssid= Settings.getCStringBuffer(SettingsField::WifiSSID);
+    const auto password= Settings.getCStringBuffer(SettingsField::WifiPassword);
     WiFi.begin(ssid.charBegin(), password.charBegin());
 
     Serial.print("Connecting to WiFi");
@@ -2883,8 +2880,7 @@ void connectToWifi() {
 
 void initMqtt() {
     {
-        LocalBuffer<100> fingerprint;
-        Settings.getCString(SettingsField::MqttCertificateFingerprint, fingerprint);
+        auto fingerprint= Settings.getCStringBuffer(SettingsField::MqttCertificateFingerprint);
         if (strstr(fingerprint.charBegin(), "[insecure]")) {
             debugOut << "Creating insecure wifi client" << debugEndl;
             wifiClient = NoStl::makeUnique<WiFiClient>();
@@ -2901,9 +2897,8 @@ void initMqtt() {
     }
 
     {
-        LocalBuffer<20> port;
-        Settings.getCString(SettingsField::MqttBrokerAddress, mqttServerDomain);
-        Settings.getCString(SettingsField::MqttBrokerPort, port);
+        Settings.copyCString(SettingsField::MqttBrokerAddress, mqttServerDomain);
+        const auto port= Settings.getCStringBuffer(SettingsField::MqttBrokerPort);
         auto portNumber = atoi(port.charBegin());
         debugOut << "Setting mqtt server at '" << mqttServerDomain.charBegin() << "' on port '" << portNumber << "'\r\n";
 
@@ -2912,17 +2907,12 @@ void initMqtt() {
     }
 
     {
-        LocalBuffer<101> basePath;
-        LocalBuffer<2> mqttMessageMode;
-        LocalBuffer<21> mqttClient;
-        LocalBuffer<21> mqttUser;
-        LocalBuffer<21> mqttPassword;
+        const auto basePath= Settings.getCStringBuffer(SettingsField::MqttBrokerPath);
+        const auto mqttMessageMode= Settings.getCStringBuffer(SettingsField::MqttMessageMode);
+        const auto mqttClient= Settings.getCStringBuffer(SettingsField::MqttBrokerClientId);
+        const auto mqttUser= Settings.getCStringBuffer(SettingsField::MqttBrokerUser);
+        const auto mqttPassword= Settings.getCStringBuffer(SettingsField::MqttBrokerPassword);
 
-        Settings.getCString(SettingsField::MqttBrokerPath, basePath);
-        Settings.getCString(SettingsField::MqttMessageMode, mqttMessageMode);
-        Settings.getCString(SettingsField::MqttBrokerClientId, mqttClient);
-        Settings.getCString(SettingsField::MqttBrokerUser, mqttUser);
-        Settings.getCString(SettingsField::MqttBrokerPassword, mqttPassword);
         switch (mqttMessageMode.at(0)) {
         case '0':
             debugOut << "Creating mqtt RAW sender" << debugEndl;
@@ -3049,7 +3039,7 @@ void runSetupWizard(bool oldDataIsValid) {
             LocalBuffer<150> oldValueBuffer;
             const char* defaultValue = nullptr;
             if (oldDataIsValid) {
-                Settings.getCString(field, oldValueBuffer);
+                Settings.copyCString(field, oldValueBuffer);
                 defaultValue = oldValueBuffer.charBegin();
                 auto shownValue = field.isSecure() ? "<hidden-value>" : defaultValue;
                 serialStream << " or just press enter to confirm old value (" << shownValue << ") ";
@@ -3200,7 +3190,7 @@ void setup() {
 
     initMqtt();
 
-    Settings.getBytes(SettingsField::DslmCosemDecryptionKey, dlmsDecryptionKey);
+    Settings.copyHexBytes(SettingsField::DslmCosemDecryptionKey, dlmsDecryptionKey);
 
     // Setup serial connection for Mbus communication
     debugOut << "Switching serial connection to mbus mode" << debugEndl;
