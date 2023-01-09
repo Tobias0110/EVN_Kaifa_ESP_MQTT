@@ -2816,8 +2816,6 @@ PubSubClient pubsubClient{};
 EEPROMSettings<decltype(EEPROM)> Settings{ EEPROM };
 NoStl::UniquePtr<MqttSender> mqttSender;
 LocalBuffer<16> dlmsDecryptionKey;
-LocalBuffer<1300> webServerCustomSSLPrivateKey;
-LocalBuffer<1000> webServerCustomSSLCertificate;
 
 // The domain has to be stored globally, because the PubSubClient lib does not create
 // a copy of the string it is provided. The lifetime has to be managed by the user (us).
@@ -2978,9 +2976,7 @@ bool loadPemFileFromSerial(SettingsField field, bool oldDataIsValid) {
     }
 
     SerialUnbufferedReader<decltype(Serial)> reader{ Serial };
-    Buffer& derBuffer = (field == SettingsField::WebServerSSLCertificate)
-        ? static_cast<Buffer&>(webServerCustomSSLCertificate)
-        : static_cast<Buffer&>(webServerCustomSSLPrivateKey);
+    LocalBuffer<1500> derBuffer;
 
     auto derLengthOrError = derBuffer.parseBase64(reader);
     if (derLengthOrError.isError()) {
@@ -2988,8 +2984,8 @@ bool loadPemFileFromSerial(SettingsField field, bool oldDataIsValid) {
         return false;
     }
 
-    if (derLengthOrError.value() >= derBuffer.length()) {
-        serialStream << "Error: Too much data received. (Max pem file size ";
+    if (derLengthOrError.value() >= derBuffer.length() || derBuffer.length() > field.maxLength() - 2) {
+        serialStream << "Error: Too much data received. (Max pem file size is ~" << field.maxLength()* 4 / 3 + 90 << " bytes, or " << field.maxLength() << " bytes der data)\r\n";
         return false;
     }
 
@@ -3087,9 +3083,6 @@ void runSetupWizard(bool oldDataIsValid) {
 
     serialStream << "Committing EEPROM...\r\n";
     Settings.save();
-
-    webServerCustomSSLPrivateKey.resetLength();
-    webServerCustomSSLCertificate.resetLength();
 }
 
 ErrorOr<void> waitForAndProcessPacket() {
