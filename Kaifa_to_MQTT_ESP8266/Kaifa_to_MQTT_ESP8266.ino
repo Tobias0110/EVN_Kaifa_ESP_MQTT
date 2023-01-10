@@ -2800,6 +2800,10 @@ public:
 void delay(u32) {}
 void pinMode(u32, u32) {}
 void digitalWrite(u32, u32) {}
+u32 millis() {
+    static u32 time = 100;
+    return time += 50;
+}
 
 
 
@@ -3397,16 +3401,20 @@ void loop() {
         }
 
         // Heart beat LED blink
-        digitalWrite(D0, HIGH);
-        delay(100);
         digitalWrite(D0, LOW);
-
+        auto start = millis();
         // Complete destroy and reallocate the WifiServerSecure (web server) and WifiClientSecure (mqtt pubsub client)
         // to unblock them, as only one of them can work at a time, due to a bug in the TLS handling of the Arduino libraries.
         // Just calling .stop() is not enough, both have to be completely removed and have their destructors called
         initMqttWifiClient();
         initWebServer();
+
+        auto stop = millis();
+        if (start < stop && stop - start < 100) {
+            delay(100 - (stop - start));
+        }
     }
 
+    digitalWrite(D0, HIGH);
     webServer->handleClient();
 }
