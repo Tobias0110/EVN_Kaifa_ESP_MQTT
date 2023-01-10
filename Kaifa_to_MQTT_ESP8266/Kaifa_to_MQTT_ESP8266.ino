@@ -2628,7 +2628,8 @@ private:
 };
 
 class DummyWiFiClient {
-
+public:
+    void stop() {}
 };
 
 class DummyWiFiClientSecure : public DummyWiFiClient {
@@ -2772,6 +2773,8 @@ public:
 
 class DummyWebServerSecure {
 public:
+    DummyWebServerSecure(u16 port) {}
+
     void begin() {
         std::cout << "[!] WebServer: Begin" << std::endl;
     }
@@ -2789,6 +2792,9 @@ public:
     void send(u32 status, const char*, const char*) {}
 
     void handleClient() {}
+
+    void stop() {}
+    void close() {}
 };
 
 void delay(u32) {}
@@ -2841,6 +2847,7 @@ using WiFiClient = DummyWiFiClient;
 using WiFiClientSecure = DummyWiFiClientSecure;
 
 namespace BearSSL {
+    using ESP8266WebServerSecure = DummyWebServerSecure;
     using X509List = DummyX509List;
     using PrivateKey = DummyPrivateKey;
 }
@@ -2855,7 +2862,7 @@ DummyPubSubClient pubsubClient;
 DummyServerSessions serverSessionsCache;
 NoStl::UniquePtr<DummyX509List> webServerCertificate;
 NoStl::UniquePtr<DummyPrivateKey> webServerPrivateKey;
-DummyWebServerSecure webServer;
+NoStl::UniquePtr<DummyWebServerSecure> webServer;
 
 void setup();
 void loop();
@@ -2884,7 +2891,7 @@ BearSSL::ServerSessions serverSessionsCache{ serverSessionsStorage, serverSessio
 
 NoStl::UniquePtr<BearSSL::X509List> webServerCertificate;
 NoStl::UniquePtr<BearSSL::PrivateKey> webServerPrivateKey;
-BearSSL::ESP8266WebServerSecure webServer{ 443 };
+NoStl::UniquePtr<BearSSL::ESP8266WebServerSecure> webServer;
 
 #endif
 
@@ -2943,6 +2950,7 @@ static const char webServerDefaultCertificateData[] PROGMEM =
 EEPROMSettings<decltype(EEPROM)> Settings{ EEPROM };
 NoStl::UniquePtr<MqttSender> mqttSender;
 LocalBuffer<16> dlmsDecryptionKey;
+LocalBuffer<45> mqttServerCertFingerprint;
 
 // The domain has to be stored globally, because the PubSubClient lib does not create
 // a copy of the string it is provided. The lifetime has to be managed by the user (us).
@@ -3003,22 +3011,34 @@ void connectToWifi() {
     debugOut << "Wifi connected to '" << ssid.charBegin() << "' " << " with IP '" << WiFi.localIP() << "'\r\n";
 }
 
+void initMqttWifiClient() {
+    if (wifiClient) {
+        wifiClient->stop();
+        wifiClient.reset();
+    }
+
+    if (!mqttServerCertFingerprint.length()) {
+        debugOut << "Creating insecure wifi client" << debugEndl;
+        wifiClient = NoStl::makeUnique<WiFiClient>();
+    }
+    else {
+        debugOut << "Creating secure wifi client with fingerprint: " << mqttServerCertFingerprint.charBegin() << debugEndl;
+
+        auto client = NoStl::makeUnique<WiFiClientSecure>();
+        client->setFingerprint(mqttServerCertFingerprint.charBegin());
+        wifiClient = NoStl::move(client);
+    }
+
+    pubsubClient.setClient(*wifiClient);
+}
+
 void initMqtt() {
     {
-        auto fingerprint= Settings.getCStringBuffer(SettingsField::MqttCertificateFingerprint);
-        if (strstr(fingerprint.charBegin(), "[insecure]")) {
-            debugOut << "Creating insecure wifi client" << debugEndl;
-            wifiClient = NoStl::makeUnique<WiFiClient>();
+        Settings.copyCString(SettingsField::MqttCertificateFingerprint, mqttServerCertFingerprint);
+        if (strstr(mqttServerCertFingerprint.charBegin(), "[insecure]")) {
+            mqttServerCertFingerprint.shrinkLength(0);
         }
-        else {
-            debugOut << "Creating secure wifi client with fingerprint: " << fingerprint.charBegin() << debugEndl;
-
-            auto client = NoStl::makeUnique<WiFiClientSecure>();
-            client->setFingerprint(fingerprint.charBegin());
-            wifiClient = NoStl::move(client);
-        }
-
-        pubsubClient.setClient(*wifiClient);
+        initMqttWifiClient();
     }
 
     {
@@ -3057,24 +3077,33 @@ void initMqtt() {
 }
 
 void initWebServer() {
-    webServerPrivateKey = NoStl::makeUnique<BearSSL::PrivateKey>(webServerDefaultSSLPrivateKeyData);
-    webServerCertificate = NoStl::makeUnique<BearSSL::X509List>(webServerDefaultCertificateData);
+    if (!webServerPrivateKey || !webServerCertificate) {
+        webServerPrivateKey = NoStl::makeUnique<BearSSL::PrivateKey>(webServerDefaultSSLPrivateKeyData);
+        webServerCertificate = NoStl::makeUnique<BearSSL::X509List>(webServerDefaultCertificateData);
+    }
 
-    webServer.getServer().setRSACert(webServerCertificate.get(), webServerPrivateKey.get());
-    webServer.getServer().setCache(&serverSessionsCache);
+    if (webServer) {
+        webServer->stop();
+        webServer->close();
+        webServer.reset();
+    }
 
-    webServer.on("/", []() {
+    webServer = NoStl::makeUnique<BearSSL::ESP8266WebServerSecure>(443);
+    webServer->getServer().setRSACert(webServerCertificate.get(), webServerPrivateKey.get());
+    webServer->getServer().setCache(&serverSessionsCache);
+
+    webServer->on("/", []() {
         debugOut << "Root route\r\n";
-        webServer.send(200, "text/plain", "this is the root page");
+        webServer->send(200, "text/plain", "this is the root page");
         });
 
-    webServer.onNotFound([]() {
+    webServer->onNotFound([]() {
         debugOut << "Route not found\r\n";
-        webServer.send(404, "text/plain", "unknown url");
+        webServer->send(404, "text/plain", "unknown url");
         });
 
-    debugOut << "Starting webserver" << debugEndl;
-    webServer.begin();
+    debugOut << "(Re-)Starting webserver" << debugEndl;
+    webServer->begin();
 }
 
 bool loadPemFileFromSerial(SettingsField field, bool oldDataIsValid) {
@@ -3369,7 +3398,13 @@ void loop() {
         digitalWrite(D0, HIGH);
         delay(100);
         digitalWrite(D0, LOW);
+
+        // Complete destroy and reallocate the WifiServerSecure (web server) and WifiClientSecure (mqtt pubsub client)
+        // to unblock them, as only one of them can work at a time, due to a bug in the TLS handling of the Arduino libraries.
+        // Just calling .stop() is not enough, both have to be completely removed and have their destructors called
+        initMqttWifiClient();
+        initWebServer();
     }
 
-    webServer.handleClient();
+    webServer->handleClient();
 }
