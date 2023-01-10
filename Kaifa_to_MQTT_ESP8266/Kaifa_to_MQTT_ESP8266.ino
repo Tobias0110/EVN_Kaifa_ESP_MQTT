@@ -3302,6 +3302,10 @@ ErrorOr<void> waitForAndProcessPacket() {
 void setup() {
     Serial.begin(115200, SERIAL_8N1);
 
+    // Heart beat LED
+    pinMode(D0, OUTPUT);
+    digitalWrite(D0, LOW);
+
     Serial.println("Starting smart meter mqtt gateway v2.0");
     Serial.println("Initializing...");
 
@@ -3352,9 +3356,6 @@ void setup() {
     SerialStream serialStream{ Serial };
     Settings.printConfiguration(serialStream);
 
-    // Heart beat LED
-    pinMode(D0, OUTPUT);
-
     // Connect to WIFI
     connectToWifi();
 
@@ -3375,6 +3376,7 @@ void setup() {
 
     Serial.begin(2400, SERIAL_8E1);
     Serial.setTimeout(25000);  // Be carefull with long timeouts, as they might never expire -> timemax(): https://github.com/esp8266/Arduino/blob/master/cores/esp8266/PolledTimeout.h
+    digitalWrite(D0, HIGH);
 }
 
 void loop() {
