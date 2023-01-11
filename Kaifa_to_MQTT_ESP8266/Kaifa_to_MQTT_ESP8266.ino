@@ -176,6 +176,7 @@ class SerialBufferReader;
 class BufferPrinter;
 class MqttSender;
 class SettingsField;
+class DerFile;
 template<typename>
 class EEPROMSettings;
 class MBusLinkFrame;
@@ -1343,6 +1344,30 @@ const SettingsField::FieldInfo SettingsField::fields[SettingsField::NumberOfFiel
     {WebServerSSLKey, "web server ssl private key", "[default]", 1300},
 };
 
+class DerFile {
+public:
+    DerFile(Buffer&& b) : buffer{NoStl::move(b)} {}
+
+    operator bool() const {
+        return buffer.length();
+    }
+
+    const char* getPrintValue() const {
+        return buffer.length() ? "<custom bytes>" : "[default]";
+    }
+
+    const u8* data() const {
+        return buffer.begin();
+    }
+
+    u32 length() const {
+        return buffer.length();
+    }
+
+private:
+    Buffer buffer;
+};
+
 template<typename T>
 class EEPROMSettings {
 public:
@@ -1356,9 +1381,13 @@ public:
         return {};
     }
 
+    bool available() const {
+        return eeprom.getConstDataPtr();
+    }
+
     void copyCString(SettingsField field, Buffer& buffer) {
         assert(buffer.length() >= field.maxLength());
-        assert(eeprom.getDataPtr());
+        assert(available());
         auto offset = field.calcOffset();
         auto maxLength = field.maxLength();
 
@@ -1367,7 +1396,7 @@ public:
     }
 
     Buffer getCStringBuffer(SettingsField field) {
-        assert(eeprom.getDataPtr());
+        assert(available());
         auto offset = field.calcOffset();
         auto maxLength = field.maxLength();
         auto ptr = eeprom.getDataPtr() + offset;
@@ -1375,10 +1404,13 @@ public:
         return { ptr, len };
     }
 
-    u16 getDerFileLength(SettingsField field) {
+    DerFile getDerFile(SettingsField field) {
         assert(field.isDerFile());
+        assert(available());
         auto offset = field.calcOffset();
-        return (eeprom[offset + 1] << 8) | eeprom[offset];
+        auto ptr = eeprom.getDataPtr() + offset+ 2;
+        u16 len= (eeprom[offset + 1] << 8) | eeprom[offset];
+        return { Buffer{ptr, len} };
     }
 
     void copyHexBytes(SettingsField field, Buffer& buffer) {
@@ -1396,7 +1428,11 @@ public:
     }
 
     void set(SettingsField field, const Buffer& buffer) {
-        assert(eeprom.getDataPtr());
+        assert(available());
+        if (field.isDerFile()) {
+            setDerFile(field, buffer);
+            return;
+        }
         auto offset = field.calcOffset();
         auto maxLength = field.maxLength() < buffer.length() ? field.maxLength() : buffer.length();
 
@@ -1405,30 +1441,30 @@ public:
     }
 
     void setDerFile(SettingsField field, const Buffer& buffer) {
+        assert(available());
         assert(field.isDerFile());
-        auto offset = field.calcOffset();
 
-        for (u32 i = 0; i + 2 < field.maxLength() && i < buffer.length(); i++) {
-            eeprom[offset + i + 2] = buffer[i];
-        }
-    }
+        // Store the length in the first two bytes (Little Endian)
+        auto length = buffer.length();
+        assert(length <= (field.maxLength() - 2));
 
-    void setDerFileLength(SettingsField field, u16 value) {
-        assert(field.isDerFile());
-        assert(value <= (field.maxLength() - 2));
         auto offset = field.calcOffset();
-        eeprom[offset + 1] = value >> 8;
-        eeprom[offset] = value & 0xff;
+        eeprom[offset + 1] = length >> 8;
+        eeprom[offset] = length & 0xff;
+
+        // Copy the contents of the buffer after the length bytes
+        auto ptr = eeprom.getDataPtr() + offset + 2;
+        memcpy(ptr, buffer.begin(), length);
     }
 
     template<typename U>
     void printConfiguration(U& stream) {
-        assert(eeprom.getDataPtr());
+        assert(available());
 
         SettingsField::forEach([&](SettingsField field) {
             if (field.isDerFile()) {
-                auto length = getDerFileLength(field);
-                stream << "* " << field.name() << ": " << (!length ? "[default]" : "<custom-bytes>") << "\r\n";
+                auto derFile= getDerFile(field);
+                stream << "* " << field.name() << ": " << derFile.getPrintValue() << "\r\n";
             }
             // Hide password fields
             if (!field.isSecure()) {
@@ -2724,6 +2760,10 @@ public:
         return buffer.begin();
     }
 
+    const u8* getConstDataPtr() const {
+        return buffer.begin();
+    }
+
 private:
     OwnedBuffer buffer;
     bool didBegin{ false };
@@ -3117,15 +3157,8 @@ bool loadPemFileFromSerial(SettingsField field, bool oldDataIsValid) {
     SerialStream serialStream{ Serial };
 
     if (oldDataIsValid) {
-        u16 storedDataLength = Settings.getDerFileLength(field);
-
-        serialStream << " or just press enter to confirm the current settings ";
-        if (storedDataLength) {
-            serialStream << "(<custom-bytes>)\r\n";
-        }
-        else {
-            serialStream << "([default])\r\n";
-        }
+        auto derFile = Settings.getDerFile(field);
+        serialStream << " or just press enter to confirm the current settings (" << derFile.getPrintValue() << ")\r\n";
     }
     else {
         serialStream << " or just press enter to confirm the default ssl settings ([default]) \r\n";
@@ -3190,9 +3223,7 @@ bool loadPemFileFromSerial(SettingsField field, bool oldDataIsValid) {
 
     serialStream << "\r\n";
 
-    Settings.setDerFileLength(field, derLengthOrError.value());
-    Settings.setDerFile(field, derBuffer);
-
+    Settings.set(field, derBuffer);
     return true;
 }
 
