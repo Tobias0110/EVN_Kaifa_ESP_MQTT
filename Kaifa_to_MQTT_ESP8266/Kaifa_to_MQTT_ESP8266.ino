@@ -558,6 +558,7 @@ public:
         return bytesDecoded;
     }
 
+    static Buffer empty() { return {nullptr, 0}; }
     static OwnedBuffer allocate(u32 size);
     static ErrorOr<OwnedBuffer> fromHexString(const char* hexString);
 
@@ -1482,7 +1483,7 @@ public:
     static constexpr u8 packetEndByte = 0x16;
     enum class Type : u8 { SingleChar, Short, Control, Long };
 
-    MBusLinkFrame(Type type, u8 c = 0, u8 a = 0, u8 l = 0, Buffer p = { nullptr, 0 })
+    MBusLinkFrame(Type type, u8 c = 0, u8 a = 0, u8 l = 0, Buffer p = Buffer::empty())
         : frameType(type), cField(c), aField(a), lField(l), payloadBuffer(p) {}
 
     template<typename T>
@@ -3139,7 +3140,7 @@ bool loadPemFileFromSerial(SettingsField field, bool oldDataIsValid) {
     }
 
     if ((!length && !oldDataIsValid) || !strncmp(header.charBegin(), "[default]", 150)) {
-        Settings.setDerFileLength(field, 0);
+        Settings.set(field, Buffer::empty());
         return true;
     }
 
