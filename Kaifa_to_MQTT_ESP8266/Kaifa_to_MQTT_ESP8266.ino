@@ -3122,11 +3122,25 @@ void initMqtt() {
 }
 
 void initWebServer() {
+    // Load the certificate and key file on startup
     if (!webServerPrivateKey || !webServerCertificate) {
-        webServerPrivateKey = NoStl::makeUnique<BearSSL::PrivateKey>(webServerDefaultSSLPrivateKeyData);
-        webServerCertificate = NoStl::makeUnique<BearSSL::X509List>(webServerDefaultCertificateData);
+        // Use custom cert and key if available
+        assert(Settings.available());
+        auto keyFile = Settings.getDerFile(SettingsField::WebServerSSLKey);
+        auto certFile = Settings.getDerFile(SettingsField::WebServerSSLCertificate);
+        if (keyFile && certFile) {
+            debugOut << "Webserver uses custom certificate and key" << debugEndl;
+            webServerPrivateKey = NoStl::makeUnique<BearSSL::PrivateKey>(keyFile.data(), keyFile.length());
+            webServerCertificate = NoStl::makeUnique<BearSSL::X509List>(certFile.data(), certFile.length());
+        }
+        else {
+            debugOut << "Webserver uses default certificate and key" << debugEndl;
+            webServerPrivateKey = NoStl::makeUnique<BearSSL::PrivateKey>(webServerDefaultSSLPrivateKeyData);
+            webServerCertificate = NoStl::makeUnique<BearSSL::X509List>(webServerDefaultCertificateData);
+        }
     }
 
+    // Stop and deallocate the current webserver instance
     if (webServer) {
         webServer->stop();
         webServer->close();
