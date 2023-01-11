@@ -3165,12 +3165,13 @@ bool loadPemFileFromSerial(SettingsField field, bool oldDataIsValid) {
         return false;
     }
 
-    if (derLengthOrError.value() >= derBuffer.length() || derBuffer.length() > field.maxLength() - 2) {
+    auto derLength = derLengthOrError.value();
+    if (derLength >= derBuffer.length() || derLength > (field.maxLength() - 2)) {
         serialStream << "Error: Too much data received. (Max pem file size is ~" << field.maxLength() * 4 / 3 + 90 << " bytes, or " << field.maxLength() << " bytes der data)\r\n";
         return false;
     }
 
-    derBuffer.shrinkLength(derLengthOrError.value());
+    derBuffer.shrinkLength(derLength);
     //derBuffer.printHex(debugOut);
 
     // Sanity check, that DER file starts with a SEQUENCE tag (0x30)
