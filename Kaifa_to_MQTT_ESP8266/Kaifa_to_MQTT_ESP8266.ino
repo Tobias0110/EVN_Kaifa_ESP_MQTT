@@ -475,18 +475,9 @@ public:
     void parseHex(T reader, u32 nibbleCount) {
         u32 writeIdx = 0;
         while (nibbleCount > 0 && writeIdx < byteCount && reader.hasNext()) {
-            u8 value;
             u8 c = reader.nextU8();
-            if (c >= '0' && c <= '9') {
-                value = c - '0';
-            }
-            else if (c >= 'a' && c <= 'f') {
-                value = c - 'a' + 10;
-            }
-            else if (c >= 'A' && c <= 'F') {
-                value = c - 'A' + 10;
-            }
-            else {
+            u8 value = hexToNibble(c);
+            if (value > 0xF) {
                 continue;
             }
 
@@ -559,7 +550,46 @@ public:
         return bytesDecoded;
     }
 
-    static Buffer empty() { return {nullptr, 0}; }
+    void decodeUrlInPlace() {
+        if (!ptr || !byteCount) {
+            return;
+        }
+
+        u32 writeIdx = 0;
+        for (u32 i = 0; i < byteCount && writeIdx < byteCount-1; i++) {
+            if (ptr[i] == '+') {
+                ptr[writeIdx++] = ' ';
+            }
+            else if (ptr[i] == '%') {
+                u8 byte= 0;
+                if (++i < byteCount-1 ) {
+                    auto x= hexToNibble(ptr[i]);
+                    if (x <= 0xF) {
+                        byte = x;
+                    }
+                }
+                if (++i < byteCount-1) {
+                    auto x = hexToNibble(ptr[i]);
+                    if (x <= 0xF) {
+                        byte <<= 4;
+                        byte |= x;
+                    }
+                }
+                ptr[writeIdx++] = byte;
+            }
+            else if(ptr[i] == '&' || ptr[i] == '=') {
+                break;
+            }
+            else {
+                ptr[writeIdx++] = ptr[i];
+            }
+        }
+
+        ptr[writeIdx++] = '\0';
+        shrinkLength(writeIdx);
+    }
+
+    static Buffer empty() { return { nullptr, 0 }; }
     static OwnedBuffer allocate(u32 size);
     static ErrorOr<OwnedBuffer> fromHexString(const char* hexString);
 
@@ -597,6 +627,20 @@ public:
     }
 
 protected:
+    static u8 hexToNibble(u8 c) {
+        if (c >= '0' && c <= '9') {
+            return c - '0';
+        }
+        if (c >= 'a' && c <= 'f') {
+            return c - 'a' + 10;
+        }
+        if (c >= 'A' && c <= 'F') {
+            return c - 'A' + 10;
+        }
+
+        return 0xFF;
+    }
+
     u8* ptr;
     u32 byteCount;
 };
