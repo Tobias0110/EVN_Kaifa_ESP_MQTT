@@ -205,6 +205,7 @@ template<typename>
 class MqttTopicSender;
 template<typename>
 class MqttJsonSender;
+class WebAuthCookie;
 
 /**
 * Reimplement a few useful standard classes in the absence of the STL
@@ -402,6 +403,10 @@ private:
 DummyESP8266TrueRandom ESP8266TrueRandom;
 
 void delay(uint32_t);
+u32 millis() {
+    static u32 time = 100;
+    return time += 50;
+}
 #endif
 #if DEBUG_PRINTING
 
@@ -986,6 +991,15 @@ public:
         u64 val = readUptToU64(buffer, index, remainingBytes(), &bytesRead);
         index += bytesRead;
         return val;
+    }
+
+    void skipWhiteSpace() {
+        while (hasNext()) {
+            if (peakU8() != ' ') {
+                return;
+            }
+            index++;
+        }
     }
 
     ErrorOr<u8> maybeNextU8() { return nextU8(); }
@@ -2698,6 +2712,133 @@ private:
     bool hasAtLeastOneField{ false };
 };
 
+class WebAuthCookie {
+private:
+    constexpr static u32 maxAgeMillis = 20 * 60 * 1000; // 20min
+    constexpr static char constantString[] = "MQTTGateway";
+    static_assert(sizeof(constantString) == 12);
+
+public:
+    static WebAuthCookie create() {
+        WebAuthCookie cookie;
+        ESP8266TrueRandom.memfill((char*)cookie.storage().begin(), 16);
+
+        u32 time = millis();
+        auto tmBuf = cookie.timeStamp();
+        tmBuf[0] = time & 0xFF;
+        tmBuf[1] = (time >> 8) & 0xFF;
+        tmBuf[2] = (time >> 16) & 0xFF;
+        tmBuf[3] = (time >> 24) & 0xFF;
+
+        strncpy((char*)cookie.constant().begin(), constantString, 12);
+
+        // Encrypt in place
+        auto gcm = GCM<AES128>{};
+        initGCM(gcm);
+
+        auto plainText = cookie.storage();
+        gcm.encrypt(plainText.begin(), plainText.begin(), plainText.length());
+        gcm.computeTag(cookie.tag().begin(), cookie.tag().length());
+
+        return cookie;
+    }
+
+    static ErrorOr<WebAuthCookie> fromBase64(const Buffer& readBuffer) {
+        WebAuthCookie cookie;
+        BufferReader reader{ readBuffer };
+        reader.skipWhiteSpace();
+
+        TRYGET(readByteCount, cookie.buffer.parseBase64(reader));
+        
+        reader.skipWhiteSpace();
+        if (reader.hasNext() || readByteCount != 48) {
+            return Error{"Invalid authentication cookie length"};
+        }
+
+        return cookie;
+    }
+
+    const Buffer& data() const {
+        return buffer;
+    }
+
+    ErrorOr<void> verify() {
+        // Decrypt in place
+        auto gcm = GCM<AES128>{};
+        initGCM(gcm);
+        auto cipherText = storage();
+        gcm.decrypt(cipherText.begin(), cipherText.begin(), cipherText.length());
+        if (!gcm.checkTag(tag().begin(), tag().length())) {
+            return Error{ "Tag did not match" };
+        }
+
+        if (strncmp(constant().charBegin(), constantString, 12)) {
+            return Error{ "Invalid constant" };
+        }
+
+        u32 time = 0;
+        auto tmBuf = timeStamp();
+        time |= tmBuf[0];
+        time |= tmBuf[1] << 8;
+        time |= tmBuf[2] << 16;
+        time |= tmBuf[3] << 24;
+
+        u32 currentTime = millis();
+        if (currentTime < time || (currentTime - time) > maxAgeMillis) {
+            return Error{ "Too old" };
+        }
+
+        return {};
+    }
+
+    static void initEncryption() {
+        ESP8266TrueRandom.memfill((char*)gcmKey.begin(), gcmKey.length());
+        ESP8266TrueRandom.memfill((char*)gcmInitVector.begin(), gcmInitVector.length());
+    }
+
+    void printCookieHeader(BufferPrinter& printer) const {
+        printer.print("auth=");
+        data().printBase64(printer);
+        printer.print(";HttpOnly;Secure;SameSite=Strict;Max-Age=1200");
+    }
+
+private:
+    WebAuthCookie() = default;
+
+    static LocalBuffer<16> gcmKey;
+    static LocalBuffer<12> gcmInitVector;
+
+    static void initGCM(GCM<AES128>& gcm) {
+        gcm.clear();
+        gcm.setIV(gcmInitVector.begin(), gcmInitVector.length());
+        gcm.setKey(gcmKey.begin(), gcmKey.length());
+    }
+
+    Buffer timeStamp() {
+        return buffer.slice(16, 20);
+    }
+
+    Buffer constant() {
+        return buffer.slice(20, 32);
+    }
+
+    Buffer storage() {
+        return buffer.slice(0, 32);
+    }
+
+    Buffer tag() {
+        return buffer.slice(32, 48);
+    }
+
+    // Encrypted +  16 Byte random base value (cycled on each startup)
+    //           |   4 Byte time stamp
+    //           +  12 Byte constant value
+    // Plain        16 Byte tag
+    LocalBuffer<16 + 4 + 12 + 16> buffer;
+};
+
+LocalBuffer<16> WebAuthCookie::gcmKey;
+LocalBuffer<12> WebAuthCookie::gcmInitVector;
 
 /**
 * Mock a bunch of different classes, functions and globals from the Arduino Libraries,
@@ -3167,10 +3308,6 @@ private:
 void delay(u32) {}
 void pinMode(u32, u32) {}
 void digitalWrite(u32, u32) {}
-u32 millis() {
-    static u32 time = 100;
-    return time += 50;
-}
 
 
 
