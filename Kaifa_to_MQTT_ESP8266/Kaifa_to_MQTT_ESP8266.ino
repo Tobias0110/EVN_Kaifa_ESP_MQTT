@@ -37,6 +37,7 @@
 #ifndef ARDUINO
 #include <iostream>
 #include <string>
+#include <map>
 #include <iomanip>
 #include <cassert>
 #include <conio.h>
@@ -48,7 +49,7 @@
 #include "Crypto-0.4.0/src/GCM.h"
 #include "CRC-master/CRC32.h"
 
-#else 
+#else
 
 /**
 * Dependencies:
@@ -339,6 +340,46 @@ private:
     T& serial;
 };
 
+
+#ifndef ARDUINO
+#define PROGMEM
+#define FPSTR(pstr_pointer) (reinterpret_cast<const __FlashStringHelper *>(pstr_pointer))
+#define F(string_literal) (FPSTR(PSTR(string_literal)))
+struct __FlashStringHelper {};
+
+class String {
+public:
+    String() = default;
+    String(const char* s) : data{ s } {}
+    String(const String&) = default;
+    String(String&& s) : data{ std::move(s.data) } {}
+    String(std::string s) : data{ std::move(s) } {}
+    bool isEmpty() const { return data.size() == 0; }
+    bool equalsIgnoreCase(const String& s) {
+        return std::equal(data.begin(), data.end(), s.data.begin(), s.data.end(), [](char a, char b) {
+            return tolower(a) == tolower(b);
+            });
+    }
+    bool equals(const String& s) const { return data == s.data; }
+    i32 indexOf(const char* s, u32 start= 0) const {
+        auto x= data.find(s, start);
+        return x == std::string::npos ? -1 : x;
+    }
+    i32 indexOf(char s, u32 start = 0) const {
+        auto x = data.find(s, start);
+        return x == std::string::npos ? -1 : x;
+    }
+    std::string& str() { return data; }
+    const std::string& str() const { return data; }
+    const char* c_str() const { return data.c_str(); }
+    u32 length() const { return data.length(); }
+    char& operator[](u32 idx) { return data[idx]; }
+    const char& operator[](u32 idx) const { return data[idx]; }
+    char* begin() { return (char*)data.data(); }
+private:
+    std::string data;
+};
+#endif
 #if DEBUG_PRINTING
 
 #ifdef ARDUINO
@@ -982,7 +1023,7 @@ private:
         // Do try to read even more if the end char was just read
         if (!(readAtLeast && writeIndex && buffer.at(writeIndex - 1) == endChar)) {
             writeIndex += serialInterface.readBytesUntil(endChar, (char*)&buffer[writeIndex], buffer.length() - writeIndex);
-            assert(writeIndex < buffer.length()); // Buffer was too small 
+            assert(writeIndex < buffer.length()); // Buffer was too small
             buffer[writeIndex++] = endChar; // Add end byte
         }
 
@@ -2609,7 +2650,6 @@ private:
 #define LOW    0x00
 #define HIGH   0x01
 #define WL_CONNECTED 0x0A
-#define PROGMEM
 
 class DummyIPAddress {
 public:
@@ -2713,6 +2753,14 @@ public:
         assert(didBegin);
         std::cout << str;
         return strlen(str);
+    }
+
+    u32 println(const String& str) {
+        return println(str.str().c_str());
+    }
+
+    u32 print(const String& str) {
+        return print(str.str().c_str());
     }
 
     u32 print(char c) {
@@ -2907,7 +2955,20 @@ public:
     void setCache(DummyServerSessions*) {}
 };
 
+enum HttpMethod { HTTP_GET, HTTP_POST };
+
 class DummyWebServerSecure {
+private:
+    auto getArgIteratorByIndex(u32 idx) const {
+        assert(idx < args());
+        auto it = currentFormArguments.begin();
+        while (idx > 0) {
+            idx--;
+            it++;
+        }
+        return it;
+    }
+
 public:
     DummyWebServerSecure(u16 port) {}
 
@@ -2919,18 +2980,125 @@ public:
         return {};
     }
 
-    template<typename T>
-    void on(const char*, const T&) {}
+    using RequestHandlerFunction = void(*)(void);
 
-    template<typename T>
-    void onNotFound(const T&) {}
+    void on(const char* path, RequestHandlerFunction func) { on(path, HTTP_GET, func); }
+    void on(const char* path, HttpMethod method, RequestHandlerFunction func) {
+        auto it = handlers.find(path);
+        if (it == handlers.end()) {
+            handlers.emplace(std::make_pair(std::string{ path }, std::map<HttpMethod, RequestHandlerFunction>{}));
+            it = handlers.find(path);
+        }
 
-    void send(u32 status, const char*, const char*) {}
+        it->second[method] = func;
+    }
+
+    void onNotFound(RequestHandlerFunction func) { notFoundHandler = func; }
+
+    void send(u32 status, const char* mime, const char* data) { send(status, String{ mime }, String{ data }); }
+    void send_P(u32 status, const char* mime, const char* data) { send(status, String{ mime }, String{ data }); }
+    void send(u32 status, String mime, String data) {
+        debugOut << "[!] WebServer sent status " << status << " with mime type '" << mime.str() << "'" << std::endl;
+        debugOut << "[!] Body is: " << data.str() << std::endl;
+    }
+
+    bool chunkedResponseModeStart(u32 status, const char* mime) {
+        debugOut << "[!] WebServer begin chunked response with status " << status << " and mime type '" << mime << "'" << std::endl;
+        return true;
+    }
+
+    void chunkedResponseFinalize() {
+        debugOut << "[!] WebServer ended chunked response" << debugEndl;
+    }
+
+    void sendContent(const char* data) { sendContent_P(data); }
+    void sendContent(const char* data, u32 size) { sendContent_P(data, size); }
+    void sendContent_P(const char* data) { sendContent_P(data, strlen(data)); }
+    void sendContent_P(const char* data, u32 size) {
+        std::string buffer;
+        buffer.assign(data, size);
+        debugOut << "[!] WebServer send chunk: " << buffer << debugEndl;
+    }
+
+    void sendHeader(const String& name, const String& value) {
+        debugOut << "[!] WebServer send header: " << name.str() << " = " << value.str() << debugEndl;
+        responseHeaders.emplace(name.str(), value.str());
+    }
 
     void handleClient() {}
 
+    bool hasArg(const char* name) const { return currentFormArguments.contains(name); }
+    String arg(const char* name) const {
+        auto it = currentFormArguments.find(name);
+        assert(it != currentFormArguments.end());
+        return it->second;
+    }
+
+    u32 args() const {
+        return currentFormArguments.size();
+    }
+
+    String arg(u32 idx) const {
+        return getArgIteratorByIndex(idx)->second;
+    }
+
+    String argName(u32 idx) const {
+        return getArgIteratorByIndex(idx)->first;
+    }
+
+    String header(const char* name) const {
+        auto it = currentHeaders.find(name);
+        return it != currentHeaders.end() ? it->second : "";
+    }
+
     void stop() {}
     void close() {}
+
+    using StringMapInitList = std::initializer_list<std::pair<std::string, std::string>>;
+    void doRequest(std::string url, HttpMethod method, std::string body, StringMapInitList formArguments = {}, StringMapInitList headers = {}) {
+        currentFormArguments.clear();
+        currentFormArguments.emplace(std::make_pair(std::string{ "plain" }, std::move(body)));
+        for (auto& a : formArguments) {
+            currentFormArguments.emplace(std::move(a));
+        }
+
+        currentHeaders.clear();
+        for (auto& h : headers) {
+            currentHeaders.emplace(std::move(h));
+        }
+
+        auto it = handlers.find(url);
+        if (it == handlers.end()) {
+            if (notFoundHandler) {
+                notFoundHandler();
+            }
+            return;
+        }
+
+        auto& methMap = it->second;
+        auto methIt = methMap.find(method);
+        if (methIt == methMap.end()) {
+            if (notFoundHandler) {
+                notFoundHandler();
+            }
+            return;
+        }
+
+        responseHeaders.clear();
+        methIt->second();
+    }
+
+    std::string responseHeader(const std::string& name) {
+        auto it = responseHeaders.find(name);
+        return it != responseHeaders.end() ? it->second : "";
+    }
+
+private:
+    std::map<std::string, std::map<HttpMethod, RequestHandlerFunction>> handlers;
+    std::map<std::string, std::string> currentFormArguments;
+    std::map<std::string, std::string> currentHeaders;
+    std::map<std::string, std::string> responseHeaders;
+    RequestHandlerFunction notFoundHandler{ nullptr };
 };
 
 void delay(u32) {}
