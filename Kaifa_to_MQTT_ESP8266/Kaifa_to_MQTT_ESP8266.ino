@@ -1118,12 +1118,24 @@ public:
 
     BufferPrinter& print(const char* str) {
         assert(str); // Cannot print empty string
-        auto len = strlen(str);
-        if (cursor + len >= buffer.end()) {
-            len = (buffer.end() - cursor) - 1;
+        u32 len = strlen(str);
+        u32 offset = 0;
+        while (offset < len) {
+            if (isFull()) {
+                if( !onBufferFull() ) {
+                    break;
+                }
+            }
+
+            u32 copyLen= len- offset;
+            if (cursor + copyLen >= buffer.end()) {
+                copyLen = (buffer.end() - cursor) - 1;
+            }
+
+            memcpy(cursor, str+ offset, copyLen);
+            cursor += copyLen;
+            offset += copyLen;
         }
-        memcpy(cursor, str, len);
-        cursor += len;
         return *this;
     }
 
@@ -1138,14 +1150,23 @@ public:
     }
 
 protected:
+    bool isFull() const {
+        // Leave space for '\0'
+        return cursor >= buffer.end() - 1;
+    }
+
     bool push(u8 c) {
-        if (cursor >= buffer.end() - 1) { // Leave space for '\0'
-            return false;
+        if (isFull()) {
+            if (!onBufferFull()) {
+                return false;
+            }
         }
 
         *(cursor++) = c;
         return true;
     }
+
+    virtual bool onBufferFull() { return false; }
 
     Buffer buffer;
     u8* cursor;
