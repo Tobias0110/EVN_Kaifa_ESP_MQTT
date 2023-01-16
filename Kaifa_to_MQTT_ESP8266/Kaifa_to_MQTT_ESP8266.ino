@@ -12,7 +12,8 @@
 *   - Add board config repository: File --> Preferences --> Paste URL into "Additional boards manager URLs": http://arduino.esp8266.com/stable/package_esp8266com_index.json
 *   - Install the toolchain: Tools --> Boards Manager --> Install: esp8266
 *   - Select the specific ESP module: Tools --> Board --> ESP2866 Boards --> NodeMCU 1.0 (ESP-12E Modul)
-* - Open the Library Manager and intstall the dependencies listed below (Crypto, PubSubClient)
+* - Open the Library Manager and intstall the dependencies listed below (Crypto, PubSubClient, CRC)
+* - Download additional dependcies from their respective Github respositorities and put them into your Arduino/Libraries directory (ESP8266TrueRandom)
 * - Click verify to check if the project buildes without errors
 * - Connect the ESP module and click upload like for any other Arduino-like micro controller
 *
@@ -40,6 +41,7 @@
 #include <map>
 #include <iomanip>
 #include <cassert>
+#include <random>
 #include <conio.h>
 #include <stdio.h>
 #include <windows.h>
@@ -57,6 +59,9 @@
 * - Crypto: (Rhys Weatherley - MIT) https://rweather.github.io/arduinolibs/crypto.html
 * - PubSubClient: (Nicholas O'Leary - MIT) https://pubsubclient.knolleary.net/
 * - CRC: (Rob Tillaart - MIT) https://github.com/RobTillaart/CRC
+*
+* Dependencies (Manual installation required):
+* - ESP8266TrueRandom: (Marvin Roger - GNU LGPL v3.0) https://github.com/marvinroger/ESP8266TrueRandom
 **/
 
 #include <ESP8266WiFi.h>
@@ -69,6 +74,7 @@
 #include <AES.h>
 #include <GCM.h>
 #include <CRC32.h>
+#include <ESP8266TrueRandom.h>
 
 #endif
 
@@ -340,7 +346,6 @@ private:
     T& serial;
 };
 
-
 #ifndef ARDUINO
 #define PROGMEM
 #define FPSTR(pstr_pointer) (reinterpret_cast<const __FlashStringHelper *>(pstr_pointer))
@@ -379,6 +384,24 @@ public:
 private:
     std::string data;
 };
+
+
+class DummyESP8266TrueRandom {
+public:
+    void memfill(char* data, u32 size) {
+        for (u32 i = 0; i != size; i++) {
+            data[i] = dist(randomDevice);
+        }
+    }
+private:
+    // Always seed with the same value, for easier testing
+    std::default_random_engine randomDevice{ 0x0 };
+    std::uniform_int_distribution<u16> dist{ 0, 255 };
+};
+
+DummyESP8266TrueRandom ESP8266TrueRandom;
+
+void delay(uint32_t);
 #endif
 #if DEBUG_PRINTING
 
@@ -409,8 +432,6 @@ void handleAssertionFailure(u32 lineNumber) {
 
 #define debugOut std::cout
 #define debugEndl std::endl;
-
-void delay(uint32_t);
 
 #endif
 
