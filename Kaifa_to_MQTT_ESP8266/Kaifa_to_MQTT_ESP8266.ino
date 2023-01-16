@@ -651,6 +651,48 @@ public:
         shrinkLength(writeIdx);
     }
 
+    template<typename T>
+    void printBase64(T& stream) const {
+        auto bitsToChar = [](u8 bits) -> char {
+            if (bits < 0x1A) {
+                return 'A' + bits;
+            }
+            if (bits < 0x34) {
+                return 'a' + (bits - 0x1A);
+            }
+            if (bits < 0x3E) {
+                return '0' + (bits - 0x34);
+            }
+
+            return bits == 0x3E ? '+' : '/';
+        };
+
+        auto rest = byteCount % 3;
+        for (u32 i = 0; i < byteCount - rest; i += 3) {
+            u8 a = ptr[i + 0];
+            u8 b = ptr[i + 1];
+            u8 c = ptr[i + 2];
+
+            stream << bitsToChar(a >> 2)
+                << bitsToChar(((a << 4) | (b >> 4)) & 0x3F)
+                << bitsToChar(((b << 2) | (c >> 6)) & 0x3F)
+                << bitsToChar(c & 0x3F);
+        }
+
+        if (rest == 1) {
+            u8 a = ptr[byteCount - 1];
+            stream << bitsToChar(a >> 2) << bitsToChar((a << 4) & 0x3F)
+                << "==";
+        }
+        else if (rest == 2) {
+            u8 a = ptr[byteCount - 2];
+            u8 b = ptr[byteCount - 1];
+            stream << bitsToChar(a >> 2)
+                << bitsToChar(((a << 4) | (b >> 4)) & 0x3F)
+                << bitsToChar((b << 2) & 0x3F) << "=";
+        }
+    }
+
     static Buffer empty() { return { nullptr, 0 }; }
     static OwnedBuffer allocate(u32 size);
     static ErrorOr<OwnedBuffer> fromHexString(const char* hexString);
