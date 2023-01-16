@@ -1149,6 +1149,22 @@ public:
         return (const char*)buffer.begin();
     }
 
+    BufferPrinter& operator<<(const char* str) {
+        return print( str );
+    }
+
+    BufferPrinter& operator<<(char c) {
+        return printChar(c);
+    }
+
+    /*BufferPrinter& operator<<(i64 x) {
+        return print(x);
+    }
+
+    BufferPrinter& operator<<(u64 x) {
+        return print(x);
+    }*/
+
 protected:
     bool isFull() const {
         // Leave space for '\0'
