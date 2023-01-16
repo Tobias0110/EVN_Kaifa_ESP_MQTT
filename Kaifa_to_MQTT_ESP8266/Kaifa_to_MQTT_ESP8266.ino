@@ -649,6 +649,9 @@ template<int Length>
 class LocalBuffer : public Buffer {
 public:
     LocalBuffer() : Buffer(storage, Length) {}
+    LocalBuffer(const LocalBuffer& o) : Buffer(storage, Length) {
+        memcpy(storage, o.storage, Length);
+    }
 
     void resetLength() {
         byteCount = Length;
