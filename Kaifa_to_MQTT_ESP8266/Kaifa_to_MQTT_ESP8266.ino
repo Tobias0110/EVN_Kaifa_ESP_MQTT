@@ -3173,6 +3173,16 @@ private:
         return it;
     }
 
+  auto getHeaderIteratorByIndex( u32 idx ) const {
+    assert( idx < headers() );
+    auto it = currentHeaders.begin();
+    while( idx > 0 ) {
+      idx--;
+      it++;
+    }
+    return it;
+  }
+
 public:
     DummyWebServerSecure(u16 port) {}
 
@@ -3254,9 +3264,14 @@ public:
         auto it = currentHeaders.find(name);
         return it != currentHeaders.end() ? it->second : "";
     }
+  template<typename ...T>
+  void collectHeaders( const T&... ) {}
 
     void stop() {}
     void close() {}
+  u32 headers() const {
+    return currentHeaders.size();
+  }
 
     using StringMapInitList = std::initializer_list<std::pair<std::string, std::string>>;
     void doRequest(std::string url, HttpMethod method, std::string body, StringMapInitList formArguments = {}, StringMapInitList headers = {}) {
@@ -3265,6 +3280,9 @@ public:
         for (auto& a : formArguments) {
             currentFormArguments.emplace(std::move(a));
         }
+  String header( u32 idx ) const {
+    return getHeaderIteratorByIndex( idx )->second;
+  }
 
         currentHeaders.clear();
         for (auto& h : headers) {
@@ -3278,6 +3296,9 @@ public:
             }
             return;
         }
+  String headerName( u32 idx ) const {
+    return getHeaderIteratorByIndex( idx )->first;
+  }
 
         auto& methMap = it->second;
         auto methIt = methMap.find(method);
@@ -3385,6 +3406,16 @@ int main()
 
     loop();
 
+    webServer->doRequest("/", HTTP_GET, "");
+    webServer->doRequest("/", HTTP_POST, "", { {"form", "login"}, {"client", "client-id"}, {"password", "password"} });
+
+    auto cookieString = webServer->responseHeader("Set-Cookie");
+    assert(cookieString.rfind("auth=", 0) == 0);
+    auto endPos = cookieString.find(';');
+    auto cookie = cookieString.substr(0, endPos);
+
+    webServer->doRequest("/", HTTP_GET, "", {}, { {"Cookie", cookie} });
+
     return 0;
 }
 
@@ -3455,6 +3486,42 @@ static const char webServerDefaultCertificateData[] PROGMEM =
 "gARMeDpuLXKHiW3OUTkh5LEIfzWJR7I=\n"
 "-----END CERTIFICATE-----\n";
 
+static const char htmlLoginPage[] PROGMEM =
+"<!DOCTYPE html>"
+"<html lang=\"en\">"
+"<head>"
+"<meta charset=\"utf-8\">"
+"<title>ESP8266 Power Meter to MQTT Gateway</title>"
+"<style>"
+"body {"
+"font-family: sans-serif;"
+"}"
+"form {"
+"display: grid;"
+"grid-template-columns: 1fr 4fr;"
+"max-width: 20rem;"
+"grid-gap: 1rem;"
+"}"
+"button {"
+"grid-column: 2;"
+"max-width: 4rem;"
+"}"
+"</style>"
+"</head>"
+"<body>"
+"<h1>Login</h1>"
+"<form action=\"/\" method=\"post\">"
+"<input type=\"text\" name=\"form\" value=\"login\" hidden />"
+"<label for=\"name-field\">Name:</label>"
+"<input id=\"name-field\" type=\"text\" name=\"client\"/>"
+"<label for=\"password-field\">Password:</label>"
+"<input id=\"password-field\" type=\"password\" name=\"password\">"
+"<button type=\"submit\">Login</button>"
+"</form>"
+"</body>"
+"</html>";
+
+
 EEPROMSettings<decltype(EEPROM)> Settings{ EEPROM };
 NoStl::UniquePtr<MqttSender> mqttSender;
 LocalBuffer<16> dlmsDecryptionKey;
@@ -3464,6 +3531,90 @@ LocalBuffer<45> mqttServerCertFingerprint;
 // a copy of the string it is provided. The lifetime has to be managed by the user (us).
 LocalBuffer<21> mqttServerDomain;
 
+bool webReqeustIsAuthenticated() {
+    // Cut out the auth cookie part, because there could be multiple cookies for some reason
+    auto cookieString= webServer->header("Cookie");
+    i32 beginIndex = cookieString.indexOf("auth=");
+    if (beginIndex < 0) {
+        debugOut << "No auth cookie" << debugEndl;
+        return false;
+    }
+
+    beginIndex += 5; // Skip the "auth="
+
+    i32 endIndex = cookieString.indexOf(';', beginIndex);
+    if (endIndex < 0) {
+        endIndex = cookieString.length();
+    }
+
+    // Create a buffer view into the string and try to read the cookie's base64
+    Buffer readBuffer{ (u8*)cookieString.c_str() + beginIndex, (u32)endIndex - beginIndex };
+    auto cookieOrError = WebAuthCookie::fromBase64( readBuffer );
+    if (cookieOrError.isError()) {
+        debugOut << "Caught error in ::webRequestIsAuthenticated(): " << cookieOrError.error().message() << debugEndl;
+        return false;
+    }
+
+    // Do the cryptographic verification
+    auto& cookie = cookieOrError.value();
+    auto verifyError= cookie.verify();
+    if (verifyError.isError()) {
+        debugOut << "Authetication cookie is invalid because: " << verifyError.error().message() << debugEndl;
+        return false;
+    }
+
+    debugOut << "Received authenticated request" << debugEndl;
+    return true;
+}
+
+void webRenderSettingsPage() {
+
+
+    if (!webServer->chunkedResponseModeStart(200, "text/html")) {
+        webServer->send(505, "text/html", "<h2>Error 505: HTTP1.1 required</h2>");
+        return;
+    }
+
+    webServer->sendContent_P(PSTR("<h1> Authenticated HTML 1</h1>"));
+    webServer->sendContent_P(PSTR("<h2> Authenticated HTML 2</h2>"));
+    webServer->sendContent_P(PSTR("<h3> Authenticated HTML 3</h3>"));
+
+    webServer->chunkedResponseFinalize();
+}
+
+void webRenderRootPage() {
+    for( u32 i= 0; i < webServer->headers(); i++) {
+      Serial.print(webServer->headerName(i));
+      Serial.print(": ");
+      Serial.println(webServer->header(i));
+    }
+
+    if (!webReqeustIsAuthenticated()) {
+        webServer->send_P(200, "text/html", htmlLoginPage);
+        return;
+    }
+
+    webRenderSettingsPage();
+}
+
+void webLoginHandler() {
+    auto clientName = webServer->arg("client");
+    auto password = webServer->arg("password");
+    if (!clientName.equals("client-id") || !password.equals("password")) {
+        webServer->send_P(401, "text/html", htmlLoginPage);
+        return;
+    }
+
+    // Create authentication cookie and print set-cookie header
+    auto authCookie = WebAuthCookie::create();
+    LocalBuffer<150> printBuffer;
+    BufferPrinter printer{ printBuffer };
+    authCookie.printCookieHeader( printer );
+
+    webServer->sendHeader("Set-Cookie", printer.cString());
+
+    webRenderSettingsPage();
+}
 
 void flushSerial() {
     while (Serial.available()) {
@@ -3601,6 +3752,9 @@ void initWebServer() {
             webServerPrivateKey = NoStl::makeUnique<BearSSL::PrivateKey>(webServerDefaultSSLPrivateKeyData);
             webServerCertificate = NoStl::makeUnique<BearSSL::X509List>(webServerDefaultCertificateData);
         }
+
+        // Create key and init vector for authentication cookie encryption
+        WebAuthCookie::initEncryption();
     }
 
     // Stop and deallocate the current webserver instance
@@ -3613,15 +3767,36 @@ void initWebServer() {
     webServer = NoStl::makeUnique<BearSSL::ESP8266WebServerSecure>(443);
     webServer->getServer().setRSACert(webServerCertificate.get(), webServerPrivateKey.get());
     webServer->getServer().setCache(&serverSessionsCache);
+    webServer->collectHeaders("Cookie");
 
-    webServer->on("/", []() {
+    webServer->on("/", HTTP_GET, []() {
         debugOut << "Root route\r\n";
-        webServer->send(200, "text/plain", "this is the root page");
+        webRenderRootPage();
+        });
+
+    webServer->on("/", HTTP_POST, []() {
+        for (u32 i = 0; i != webServer->args(); i++) {
+            Serial.print(webServer->argName(i));
+            Serial.print(": ");
+            Serial.println(webServer->arg(i));
+        }
+
+        auto formType = webServer->arg("form");
+        if (formType.equalsIgnoreCase("login")) {
+            webLoginHandler();
+            return;
+        }
+        else {
+            webServer->send(204, "text/plain", "Unknown form type");
+            return;
+        }
+
+        webServer->send(200, "text/plain", "OK");
         });
 
     webServer->onNotFound([]() {
         debugOut << "Route not found\r\n";
-        webServer->send(404, "text/plain", "unknown url");
+        webServer->send(404, "text/html", "<h2>Error 404: Page not found</h2>");
         });
 
     debugOut << "(Re-)Starting webserver" << debugEndl;
