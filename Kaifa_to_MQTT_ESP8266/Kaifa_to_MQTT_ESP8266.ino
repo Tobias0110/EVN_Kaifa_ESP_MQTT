@@ -498,7 +498,7 @@ public:
 
             u8 x;
             do {
-                TRYGET(c, reader.nextU8());
+                TRYGET(c, reader.maybeNextU8());
                 x = c;
             } while (x == ' ' || x == '\r' || x == '\n');
 
@@ -762,7 +762,7 @@ public:
         return true;
     }
 
-    ErrorOr<u8> nextU8() {
+    ErrorOr<u8> maybeNextU8() {
         u8 c;
         if (serial.readBytes(&c, 1) != 1) {
             return Error{ "Could not read byte from serial" };
@@ -881,6 +881,15 @@ public:
         return val;
     }
 
+    ErrorOr<u8> maybeNextU8() { return nextU8(); }
+    ErrorOr<u8> maybePeakU8() { return peakU8(); }
+    ErrorOr<u16> maybeNextU16() { return nextU16(); }
+    ErrorOr<u32> maybeNextU32() { return nextU32(); }
+    ErrorOr<u64> maybeNextU64() { return nextU64(); }
+
+    ErrorOr<void> maybeSkip(u32 num = 1) { skip(num); return {}; }
+    ErrorOr<Buffer> maybeSlice(i32 len = 0) { return slice(len); }
+
 private:
     Buffer buffer;
     u32 index{ 0 };
@@ -896,31 +905,31 @@ public:
         return readIndex + c <= writeIndex;
     }
 
-    ErrorOr<u8> nextU8() {
+    ErrorOr<u8> maybeNextU8() {
         TRY(ensureBytes(1));
         return buffer.at(readIndex++);
     }
 
-    ErrorOr<u8> peakU8() {
+    ErrorOr<u8> maybePeakU8() {
         TRY(ensureBytes(1));
         return buffer.at(readIndex);
     }
 
-    ErrorOr<u16> nextU16() {
+    ErrorOr<u16> maybeNextU16() {
         TRY(ensureBytes(2));
         u16 val = readU16(buffer, readIndex);
         readIndex += 2;
         return val;
     }
 
-    ErrorOr<u32> nextU32() {
+    ErrorOr<u32> maybeNextU32() {
         TRY(ensureBytes(4));
         u32 val = readU32(buffer, readIndex);
         readIndex += 4;
         return val;
     }
 
-    ErrorOr<u64> nextU64() {
+    ErrorOr<u64> maybeNextU64() {
         TRY(ensureBytes(8));
         u64 val = readU64(buffer, readIndex);
         readIndex += 8;
@@ -931,19 +940,19 @@ public:
         if (!hasNext()) {
             return Error{ "No remaining bytes to read" };
         }
-        TRYGET(actualVal, nextU8());
+        TRYGET(actualVal, maybeNextU8());
         if (val != actualVal) {
             return Error{ "Unexpected byte" };
         }
         return {};
     }
 
-    ErrorOr<void> skip(u32 num = 1) {
+    ErrorOr<void> maybeSkip(u32 num = 1) {
         TRY(ensureBytes(num));
         readIndex += num;
     }
 
-    ErrorOr<Buffer> slice(i32 len = 0) {
+    ErrorOr<Buffer> maybeSlice(i32 len = 0) {
         assert(len >= 0); // SerialBuffer does not support negative slice lengths
         TRY(ensureBytes(len));
         Buffer sliced = buffer.slice(readIndex, readIndex + len);
@@ -1572,7 +1581,7 @@ public:
     static ErrorOr<MBusLinkFrame> decodeBuffer(SerialBufferReader<T>& reader) {
         Type type;
 
-        TRYGET(typeField, reader.nextU8());
+        TRYGET(typeField, reader.maybeNextU8());
         switch (typeField) {
         case 0xe5: return { Type::SingleChar };
         case 0x10: type = Type::Short; break;
@@ -1581,9 +1590,9 @@ public:
         }
 
         if (type == Type::Short) {
-            TRYGET(cField, reader.nextU8());
-            TRYGET(aField, reader.nextU8());
-            TRYGET(checksumField, reader.nextU8());
+            TRYGET(cField, reader.maybeNextU8());
+            TRYGET(aField, reader.maybeNextU8());
+            TRYGET(checksumField, reader.maybeNextU8());
             TRY(reader.assertU8(packetEndByte));
 
             if (((cField + aField) & 0xFF) != checksumField) {
@@ -1593,15 +1602,15 @@ public:
             return { Type::Short, cField, aField };
         }
 
-        TRYGET(lField, reader.nextU8());
+        TRYGET(lField, reader.maybeNextU8());
         TRY(reader.assertU8(lField));
         TRY(reader.assertU8(0x68));
 
-        TRYGET(cField, reader.nextU8());
-        TRYGET(aField, reader.nextU8());
+        TRYGET(cField, reader.maybeNextU8());
+        TRYGET(aField, reader.maybeNextU8());
 
-        TRYGET(userData, reader.slice(lField - 2));
-        TRYGET(checksumField, reader.nextU8());
+        TRYGET(userData, reader.maybeSlice(lField - 2));
+        TRYGET(checksumField, reader.maybeNextU8());
         TRY(reader.assertU8(packetEndByte));
 
         u8 checksum = cField + aField;
