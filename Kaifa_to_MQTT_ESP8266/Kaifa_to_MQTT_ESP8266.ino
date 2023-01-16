@@ -472,7 +472,7 @@ public:
     }
 
     template<typename T>
-    void parseHex(T reader, u32 nibbleCount) {
+    void parseHex(T& reader, u32 nibbleCount) {
         u32 writeIdx = 0;
         while (nibbleCount > 0 && writeIdx < byteCount && reader.hasNext()) {
             u8 c = reader.nextU8();
@@ -493,7 +493,7 @@ public:
     }
 
     template<typename T>
-    ErrorOr<u32> parseBase64(T reader) {
+    ErrorOr<u32> parseBase64(T& reader) {
         auto nextCharToBits = [&]() -> ErrorOr<u8> {
 
             u8 x;
@@ -747,7 +747,8 @@ ErrorOr<OwnedBuffer> Buffer::fromHexString(const char* hexString) {
     auto bufferSize = nibbleCount / 2;
     auto bufferPointer = new u8[bufferSize];
     OwnedBuffer buffer{ bufferPointer, bufferSize };
-    buffer.parseHex(IndexReader<const char*>{hexString, byteCount}, nibbleCount);
+    IndexReader<const char*> reader{ hexString, byteCount };
+    buffer.parseHex(reader, nibbleCount);
 
     return { NoStl::move(buffer) };
 }
@@ -1461,7 +1462,8 @@ public:
         assert(buffer.length() >= (field.maxLength() - 1) / 2); // Ignore the null termination byte and convert nibble count to byte count
 
         auto offset = field.calcOffset();
-        buffer.parseHex(IndexReader<T>{eeprom, field.maxLength() - 1, offset}, field.maxLength() - 1);
+        IndexReader<T> reader{ eeprom, field.maxLength() - 1, offset };
+        buffer.parseHex(reader, field.maxLength() - 1);
     }
 
     void save() {
