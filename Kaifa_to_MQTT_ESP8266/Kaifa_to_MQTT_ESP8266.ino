@@ -1417,7 +1417,8 @@ public:
     const u32 maxLength;
   };
 
-  SettingsField( Type t ) : type( t ) {}
+  SettingsField( Type t ) : type{ t } {}
+  explicit SettingsField( u32 t ) : type{ (Type)t } { assert(t < NumberOfFields); }
   SettingsField( const SettingsField& ) = default;
 
   u32 calcOffset() const {
@@ -1561,10 +1562,26 @@ public:
     }
   }
 
+  enum SpaceCalculationMode : bool {
+    AllButDerFiles= false,
+    OnlyDerFiles= true
+  };
+
   static u32 requiredStorage() {
     u32 len = 0;
     for( u32 i = 0; i != NumberOfFields; i++ ) {
       len += fields[i].maxLength;
+    }
+    return len;
+  }
+
+  static u32 requiredStorageFor(SpaceCalculationMode mode) {
+    u32 len = 0;
+    for( u32 i = 0; i != NumberOfFields; i++ ) {
+      SettingsField field{ (Type)i };
+      if( field.isDerFile() == mode ) {
+        len += field.maxLength();
+      }
     }
     return len;
   }
