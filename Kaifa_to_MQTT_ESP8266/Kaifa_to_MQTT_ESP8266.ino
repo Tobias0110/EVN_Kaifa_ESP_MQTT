@@ -1612,7 +1612,7 @@ public:
     auto offset = field.calcOffset();
     auto maxLength = field.maxLength();
 
-    strncpy( (char*)buffer.begin(), (const char*)eeprom.getDataPtr() + offset, maxLength );
+    strncpy( (char*)buffer.begin(), (const char*)eeprom.getConstDataPtr() + offset, maxLength );
     buffer[maxLength - 1] = '\0';
   }
 
@@ -1620,7 +1620,7 @@ public:
     assert( available() );
     auto offset = field.calcOffset();
     auto maxLength = field.maxLength();
-    auto ptr = eeprom.getDataPtr() + offset;
+    auto ptr = (u8*)eeprom.getConstDataPtr() + offset;
     auto len = strnlen( (const char*)ptr, maxLength ) + 1;
     return { ptr, len };
   }
@@ -1629,7 +1629,7 @@ public:
     assert( field.isDerFile() );
     assert( available() );
     auto offset = field.calcOffset();
-    auto ptr = eeprom.getDataPtr() + offset + 2;
+    auto ptr = (u8*)eeprom.getConstDataPtr() + offset + 2;
     u16 len = (eeprom[offset + 1] << 8) | eeprom[offset];
     return { Buffer{ ptr, len } };
   }
