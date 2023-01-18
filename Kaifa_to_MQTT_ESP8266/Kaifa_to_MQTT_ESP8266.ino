@@ -212,7 +212,7 @@ template<typename>
 class WebServerPrinter;
 class WebPageTemplatePart;
 class WebPageTemplate;
-template<typename,int>
+template<typename, int>
 class WebPageRenderer;
 
 /**
@@ -621,6 +621,32 @@ public:
     }
 
     return bytesDecoded;
+  }
+
+  template<typename T>
+  void encodeHtml( T& stream, bool nullTerminate= true ) {
+    u32 i = 0;
+    auto append = [&](const char* s) {
+      strncpy( (char*)ptr+ i, s, byteCount - i );
+      i += strlen( s );
+    };
+
+    while( i < byteCount && stream.hasNext() ) {
+      auto c = stream.nextU8();
+      switch( c ) {
+        case '<': append( "&lt;" ); break;
+        case '>': append( "&gt;" ); break;
+        case '"': append( "&quot;" ); break;
+        case '&': append( "&amp;" ); break;
+        default:
+          ptr[i++] = c;
+      }
+    }
+
+    if( nullTerminate ) {
+      i = i >= byteCount ? byteCount - 1 : i;
+      ptr[i] = '\0';
+    }
   }
 
   void decodeUrlInPlace() {
