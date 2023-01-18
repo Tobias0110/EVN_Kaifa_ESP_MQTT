@@ -2889,14 +2889,19 @@ public:
     String, Argument, TemplateHook
   };
 
-  struct Hook { u32 id; };
+  struct Hook { u16 id; };
+  struct Arg { u16 first; u16 second; };
 
   WebPageTemplatePart( const __FlashStringHelper* s ) : storage{ .string{ s } }, type{ String } {}
-  WebPageTemplatePart( u32 arg ) : storage{ .argumentId{ arg } }, type{ Argument } {}
-  WebPageTemplatePart( Hook h ) : storage{ .argumentId{ h.id } }, type{ TemplateHook } {}
+  WebPageTemplatePart( u16 f, u16 s = 0 ) : storage{ .argument{ .first{ f }, .second{ s } } }, type{ Argument } {}
+  WebPageTemplatePart( Hook h ) : storage{ .argument{ .first{ h.id } } }, type{ TemplateHook } {}
 
   Type getType() const {
     return type;
+  }
+
+  bool operator==(Type t) const {
+    return type == t;
   }
 
   const __FlashStringHelper* asString() const {
@@ -2904,15 +2909,15 @@ public:
     return storage.string;
   }
 
-  u32 asArgumentId() const {
+  Arg asArgument() const {
     assert( type == TemplateHook || type == Argument );
-    return storage.argumentId;
+    return storage.argument;
   }
 
 private:
   union {
     const __FlashStringHelper* string;
-    u32 argumentId;
+    Arg argument;
   } storage;
   Type type;
 };
@@ -2925,7 +2930,7 @@ public:
   WebPageTemplate( const WebPageTemplatePart( &arr )[N] ) : parts{ arr }, partCount{ N } {}
 
   template<typename T>
-  void forEachPart(const T& func ) const {
+  void forEachPart( const T& func ) const {
     for( u32 i = 0; i < partCount; i++ ) {
       func( parts[i] );
     }
@@ -2943,7 +2948,7 @@ public:
   WebPageRenderer( T& server )
     : serverPrinter{ printBuffer, server }, webServer{ server } {}
 
-  using RenderFunction = void(*)(WebPageRenderer&, BufferPrinter&, bool, u32);
+  using RenderFunction = void(*)(WebPageRenderer&, BufferPrinter&, const WebPageTemplatePart&);
   void render( const WebPageTemplate& pageTemplate, const RenderFunction func ) {
     assert( !renderFunction );
     serverPrinter.clear();
@@ -2961,7 +2966,7 @@ public:
     renderFunction = nullptr;
   }
 
-  void renderRecursive( const WebPageTemplate& pageTemplate) {
+  void renderRecursive( const WebPageTemplate& pageTemplate ) {
     assert( renderFunction );
 
     pageTemplate.forEachPart( [&]( const WebPageTemplatePart& part ) {
@@ -2972,11 +2977,11 @@ public:
           break;
 
         case WebPageTemplatePart::TemplateHook:
-          renderFunction( *this, serverPrinter, true, part.asArgumentId() );
+          renderFunction( *this, serverPrinter, part );
           break;
 
         case WebPageTemplatePart::Argument:
-          renderFunction( *this, serverPrinter, false, part.asArgumentId() );
+          renderFunction( *this, serverPrinter, part );
           break;
 
         default:
@@ -3723,7 +3728,7 @@ LocalBuffer<45> mqttServerCertFingerprint;
 // a copy of the string it is provided. The lifetime has to be managed by the user (us).
 LocalBuffer<21> mqttServerDomain;
 
-using DefaultWebPageRenderer= WebPageRenderer<decltype(*webServer), 256>;
+using DefaultWebPageRenderer = WebPageRenderer<decltype(*webServer), 256>;
 
 bool webReqeustIsAuthenticated() {
   // Cut out the auth cookie part, because there could be multiple cookies for some reason
@@ -3763,9 +3768,10 @@ bool webReqeustIsAuthenticated() {
 
 void webRenderLoginPage() {
   DefaultWebPageRenderer renderer{ *webServer };
-  renderer.render( htmlBasePageTemplate(), []( DefaultWebPageRenderer& renderer, BufferPrinter& printer, bool isHook, u32 id ) {
-    if( isHook ) {
-      renderer.renderRecursive(htmlLoginPageTemplate());
+  renderer.render( htmlBasePageTemplate(), []( DefaultWebPageRenderer& renderer, BufferPrinter& printer, const WebPageTemplatePart& part) {
+    if( part == WebPageTemplatePart::TemplateHook ) {
+      assert( part.asArgument().first == 0 );
+      renderer.renderRecursive( htmlLoginPageTemplate() );
       return;
     }
   } );
