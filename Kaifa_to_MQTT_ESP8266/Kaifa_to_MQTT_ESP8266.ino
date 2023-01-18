@@ -186,6 +186,8 @@ class SettingsField;
 class DerFile;
 template<typename>
 class EEPROMSettings;
+template<typename>
+class EEPROMHandle;
 class MBusLinkFrame;
 class MBusTransportFrame;
 class DlmsApplicationFrame;
@@ -1731,6 +1733,21 @@ private:
     return calcChecksum( storageSize ) == readChecksum( storageSize );
   }
 
+  T& eeprom;
+};
+
+template<typename T>
+class EEPROMHandle final {
+public:
+  EEPROMHandle(T& e, u32 size) : eeprom{ e } {
+    eeprom.begin( size );
+  }
+
+  ~EEPROMHandle() {
+    eeprom.end();
+  }
+
+private:
   T& eeprom;
 };
 
@@ -4177,7 +4194,7 @@ void setup() {
 
   constexpr auto EEPROMBytesToLoad = 2700;
   assert( EEPROMBytesToLoad >= SettingsField::requiredStorage() + 4 );
-  EEPROM.begin( EEPROMBytesToLoad );
+  EEPROMHandle<decltype(EEPROM)> eepromHandle{ EEPROM, EEPROMBytesToLoad };
 
   bool showSetup = false;
   bool settingsDataIsValid = true;
@@ -4229,8 +4246,6 @@ void setup() {
   initWebServer();
 
   Settings.copyHexBytes( SettingsField::DslmCosemDecryptionKey, dlmsDecryptionKey );
-
-  EEPROM.end();
 
   // Setup serial connection for Mbus communication
   debugOut << "Switching serial connection to mbus mode" << debugEndl;
