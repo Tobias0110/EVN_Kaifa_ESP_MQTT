@@ -3237,10 +3237,10 @@ public:
   void end() {
     std::cout << "[!] EEPROM ended\r\n";
     didBegin = false;
-    buffer.free();
   }
 
   void commit() {
+    assert( didBegin );
     std::cout << "[!] EEPROM commit\r\n";
   }
 
@@ -3257,10 +3257,12 @@ public:
   }
 
   u8* getDataPtr() {
+    assert( didBegin );
     return buffer.begin();
   }
 
   const u8* getConstDataPtr() const {
+    assert( didBegin );
     return buffer.begin();
   }
 
