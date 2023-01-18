@@ -3696,7 +3696,7 @@ static const char webServerDefaultCertificateData[] PROGMEM =
 // function scopes. Therefore the tempalte parts arrays are static constants
 // in functions.
 WebPageTemplate htmlBasePageTemplate() {
-  static const WebPageTemplatePart parts[]= { F( R"html(<!DOCTYPE html>
+  static const WebPageTemplatePart parts[] = { F( R"html(<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="utf-8">
@@ -3738,12 +3738,12 @@ WebPageTemplate htmlBasePageTemplate() {
   <body>)html" ),
     WebPageTemplatePart::Hook{ 0 },
     F( R"html(</body></html>)html" )
-    };
+  };
   return { parts };
 }
 
 WebPageTemplate htmlLoginPageTemplate() {
-  static const WebPageTemplatePart parts[]= { F( R"html(<div class="block">
+  static const WebPageTemplatePart parts[] = { F( R"html(<div class="block">
       <h1>Login</h1>
       <form action="/" method="post" class="login">
         <input type="text" name="form" value="login" hidden />
@@ -3758,7 +3758,53 @@ WebPageTemplate htmlLoginPageTemplate() {
 }
 
 WebPageTemplate htmlSettingsPageTemplate() {
-  static const WebPageTemplatePart parts[]= { F( "<html><h2>" ), SettingsField::WifiSSID, F( "</h2></html>" ) };
+  static const WebPageTemplatePart parts[] = { F( R"html(<div class="block">
+      <h2>Wifi</h2>
+      <form action="/" method="post">
+        <input type="text" name="form" value="wifi" hidden />
+        <label for="ssid-field">SSID:</label>
+        <input id="ssid-field" type="text" name="ssid" required maxlength="32" value=")html" ), SettingsField::WifiSSID, F( R"html(" />
+        <label for="wifi-password-field">Password:</label>
+        <input id="wifi-password-field" type="password" name="password" required maxlength="64" value=")html" ), SettingsField::WifiPassword, F( R"html(" />
+        <button type="submit">Save</button>
+      </form>
+    </div>
+    <div class="block">
+      <h2>MQTT</h2>
+      <form action="/" method="post">
+        <input type="text" name="form" value="mqtt" hidden />
+        <label for="mqtt-address-field">Address:</label>
+        <div><input id="mqtt-address-field" type="text" name="address" required maxlength="20" value=")html" ), SettingsField::MqttBrokerAddress, F( R"html(" /></div>
+        <label for="mqtt-port-field">Port:</label>
+        <div><input id="mqtt-port-field" type="number" name="port" required min="0" max="65535" value=")html" ), SettingsField::MqttBrokerPort, F( R"html(" /></div>
+        <label for="mqtt-fingerprint-field">Certificate Fingerprint:</label>
+        <div><input id="mqtt-fingerprint-field" class="hex" type="text" name="fingerprint" required pattern="(\[insecure\])|[0-9a-fA-F]{40}" maxlength="44" value=")html" ), SettingsField::MqttCertificateFingerprint, F( R"html(" /></div>
+        <label for="mqtt-user-field">User:</label>
+        <div><input id="mqtt-user-field" type="text" name="user" required maxlength="20" value=")html" ), SettingsField::MqttBrokerUser, F( R"html(" /></div>
+        <label for="mqtt-password-field">Password:</label>
+        <div><input id="mqtt-password-field" type="password" name="password" required maxlength="20" value=")html" ), SettingsField::MqttBrokerPassword, F( R"html(" /></div>
+        <label for="mqtt-client-id-field">Client ID:</label>
+        <div><input id="mqtt-client-id-field" type="text" name="client-id" required maxlength="20" value=")html" ), SettingsField::MqttBrokerClientId, F( R"html(" /></div>
+        <label for="mqtt-path-field">Path:</label>
+        <div><input id="mqtt-path-field" type="text" name="path" required maxlength="100" value=")html" ), SettingsField::MqttBrokerPath, F( R"html(" /></div>
+        <label for="mqtt-raw-field">Send Raw:</label>
+        <div><input id="mqtt-raw-field" type="radio" name="mode" value="0" )html" ), { SettingsField::MqttMessageMode, MqttMessageMode::Raw }, F( R"html(/></div>
+        <label for="mqtt-topic-field">Send Topics:</label>
+        <div><input id="mqtt-topic-field" type="radio" name="mode" value="1" ")html" ), { SettingsField::MqttMessageMode, MqttMessageMode::Topic }, F( R"html(/></div>
+        <label for="mqtt-json-field">Send JSON:</label>
+        <div><input id="mqtt-json-field" type="radio" name="mode" value="2" )html" ), { SettingsField::MqttMessageMode, MqttMessageMode::Json }, F( R"html(/></div>
+        <button type="submit">Save</button>
+      </form>
+    </div>
+    <div class="block">
+      <h2>DSLM/COSEM</h2>
+      <form action="/" method="post">
+        <input type="text" name="form" value="dslmcosem" hidden />
+        <label for="dslmcosem-key-field">Decryption Key:</label>
+        <div><input id="dslmcosem-key-field" class="hex" type="text" name="key" required pattern="[0-9a-fA-F]{32}" maxlength="32" value=")html" ), SettingsField::DslmCosemDecryptionKey, F( R"html(" /></div>
+        <button type="submit">Save</button>
+      </form>
+    </div>)html" ) };
   return { parts };
 }
 
@@ -3821,16 +3867,35 @@ void webRenderLoginPage() {
 }
 
 void webRenderSettingsPage() {
-  if( !webServer->chunkedResponseModeStart( 200, "text/html" ) ) {
-    webServer->send( 505, "text/html", "<h2>Error 505: HTTP1.1 required</h2>" );
-    return;
-  }
+  // Do not call Settings.begin as this would start the checksum check. But we
+  // only load the lower part (no der files) into memory right now, which would
+  // cause an out of bounds access, as the checksum is expected to be at the very
+  // end of the full block.
+  EEPROMHandle<decltype(EEPROM)> eepromHandle{ EEPROM, SettingsField::requiredStorageFor( SettingsField::AllButDerFiles ) };
 
-  webServer->sendContent_P( PSTR( "<h1> Authenticated HTML 1</h1>" ) );
-  webServer->sendContent_P( PSTR( "<h2> Authenticated HTML 2</h2>" ) );
-  webServer->sendContent_P( PSTR( "<h3> Authenticated HTML 3</h3>" ) );
+  DefaultWebPageRenderer renderer{ *webServer };
+  renderer.render( htmlBasePageTemplate(), []( DefaultWebPageRenderer& renderer, BufferPrinter& printer, const WebPageTemplatePart& part ) {
+    if( part == WebPageTemplatePart::TemplateHook ) {
+      assert( part.asArgument().first == 0 );
+      renderer.renderRecursive( htmlSettingsPageTemplate() );
+      return;
+    }
 
-  webServer->chunkedResponseFinalize();
+    SettingsField field{ part.asArgument().first };
+    auto fieldBuffer= Settings.getCStringBuffer( field );
+
+    if( field == SettingsField::MqttMessageMode ) {
+      if( fieldBuffer[0] == part.asArgument().second ) {
+        printer.print( "checked" );
+      }
+      return;
+    }
+
+    LocalBuffer<200> encodedField;
+    BufferReader fieldReader{ fieldBuffer };
+    encodedField.encodeHtml( fieldReader );
+    printer.print( encodedField.charBegin() );
+  } );
 }
 
 void webRenderRootPage() {
