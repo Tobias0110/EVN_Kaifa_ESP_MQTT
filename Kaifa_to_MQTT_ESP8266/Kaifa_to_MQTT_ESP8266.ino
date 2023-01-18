@@ -3617,41 +3617,75 @@ static const char webServerDefaultCertificateData[] PROGMEM =
 "gARMeDpuLXKHiW3OUTkh5LEIfzWJR7I=\n"
 "-----END CERTIFICATE-----\n";
 
-static const char htmlLoginPage[] PROGMEM =
-"<!DOCTYPE html>"
-"<html lang=\"en\">"
-"<head>"
-"<meta charset=\"utf-8\">"
-"<title>ESP8266 Power Meter to MQTT Gateway</title>"
-"<style>"
-"body {"
-"font-family: sans-serif;"
-"}"
-"form {"
-"display: grid;"
-"grid-template-columns: 1fr 4fr;"
-"max-width: 20rem;"
-"grid-gap: 1rem;"
-"}"
-"button {"
-"grid-column: 2;"
-"max-width: 4rem;"
-"}"
-"</style>"
-"</head>"
-"<body>"
-"<h1>Login</h1>"
-"<form action=\"/\" method=\"post\">"
-"<input type=\"text\" name=\"form\" value=\"login\" hidden />"
-"<label for=\"name-field\">Name:</label>"
-"<input id=\"name-field\" type=\"text\" name=\"client\"/>"
-"<label for=\"password-field\">Password:</label>"
-"<input id=\"password-field\" type=\"password\" name=\"password\">"
-"<button type=\"submit\">Login</button>"
-"</form>"
-"</body>"
-"</html>";
+// Web page templates are constructed from F-strings which need to be inside
+// function scopes. Therefore the tempalte parts arrays are static constants
+// in functions.
+WebPageTemplate htmlBasePageTemplate() {
+  static const WebPageTemplatePart parts[]= { F( R"html(<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>ESP8266 Power Meter to MQTT Gateway</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        background: #bfccdf;
+      }
+      .block {
+        background: #f1f1f1;
+        padding: 2rem;
+        margin: 2rem;
+        border-radius: 1rem;
+        box-shadow: 4px 4px 7px 1px #4e4e4e73;
+      }
+      form {
+        display: grid;
+        grid-template-columns: 1fr 4fr;
+        max-width: 20rem;
+        grid-gap: 1rem;
+      }
+      button {
+        grid-column: 2;
+        max-width: 4rem;
+      }
+      :not(.login) > input:invalid {
+        border-color: red;
+        color: red;
+      }
+      .hex {
+        font-family: monospace;
+      }
+    </style>
+  </head>
+  <body>)html" ),
+    WebPageTemplatePart::Hook{ 0 },
+    F( R"html(</body></html>)html" )
+    };
+  return { parts };
+}
 
+WebPageTemplate htmlLoginPageTemplate() {
+  static const WebPageTemplatePart parts[]= { F( R"html(<div class="block">
+      <h1>Login</h1>
+      <form action="/" method="post" class="login">
+        <input type="text" name="form" value="login" hidden />
+        <label for="name-field">Name:</label>
+        <input id="name-field" type="text" name="client" required/>
+        <label for="password-field">Password:</label>
+        <input id="password-field" type="password" name="password" required>
+        <button type="submit">Login</button>
+      </form>
+    </div>)html" ) };
+  return { parts };
+}
+
+WebPageTemplate htmlSettingsPageTemplate() {
+  static const WebPageTemplatePart parts[]= { F( "<html><h2>" ), SettingsField::WifiSSID, F( "</h2></html>" ) };
+  return { parts };
+}
 
 EEPROMSettings<decltype(EEPROM)> Settings{ EEPROM };
 NoStl::UniquePtr<MqttSender> mqttSender;
@@ -3661,6 +3695,8 @@ LocalBuffer<45> mqttServerCertFingerprint;
 // The domain has to be stored globally, because the PubSubClient lib does not create
 // a copy of the string it is provided. The lifetime has to be managed by the user (us).
 LocalBuffer<21> mqttServerDomain;
+
+using DefaultWebPageRenderer= WebPageRenderer<decltype(*webServer), 256>;
 
 bool webReqeustIsAuthenticated() {
   // Cut out the auth cookie part, because there could be multiple cookies for some reason
@@ -3698,9 +3734,17 @@ bool webReqeustIsAuthenticated() {
   return true;
 }
 
+void webRenderLoginPage() {
+  DefaultWebPageRenderer renderer{ *webServer };
+  renderer.render( htmlBasePageTemplate(), []( DefaultWebPageRenderer& renderer, BufferPrinter& printer, bool isHook, u32 id ) {
+    if( isHook ) {
+      renderer.renderRecursive(htmlLoginPageTemplate());
+      return;
+    }
+  } );
+}
+
 void webRenderSettingsPage() {
-
-
   if( !webServer->chunkedResponseModeStart( 200, "text/html" ) ) {
     webServer->send( 505, "text/html", "<h2>Error 505: HTTP1.1 required</h2>" );
     return;
@@ -3721,7 +3765,7 @@ void webRenderRootPage() {
   }
 
   if( !webReqeustIsAuthenticated() ) {
-    webServer->send_P( 200, "text/html", htmlLoginPage );
+    webRenderLoginPage();
     return;
   }
 
@@ -3732,7 +3776,7 @@ void webLoginHandler() {
   auto clientName = webServer->arg( "client" );
   auto password = webServer->arg( "password" );
   if( !clientName.equals( "client-id" ) || !password.equals( "password" ) ) {
-    webServer->send_P( 401, "text/html", htmlLoginPage );
+    webRenderLoginPage();
     return;
   }
 
