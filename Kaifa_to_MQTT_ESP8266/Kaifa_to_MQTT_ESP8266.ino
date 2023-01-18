@@ -1353,6 +1353,14 @@ protected:
   virtual void endFieldTransmission() = 0;
 };
 
+class MqttMessageMode {
+public:
+  enum : u8 {
+    Raw = '0',
+    Topic = '1',
+    Json = '2'
+  };
+};
 
 class SettingsField {
 public:
@@ -1494,7 +1502,7 @@ public:
         break;
       case MqttMessageMode:
         RETHROW( validateLength( 1 ), "Expected 1 digit" );
-        if( buffer[0] != '0' && buffer[0] != '1' && buffer[0] != '2' ) {
+        if( buffer[0] != ::MqttMessageMode::Raw && buffer[0] != ::MqttMessageMode::Topic && buffer[0] != ::MqttMessageMode::Json ) {
           return Error{ "Expected 0, 1 or 2" };
         }
         break;
@@ -3892,15 +3900,15 @@ void initMqtt() {
     const auto mqttPassword = Settings.getCStringBuffer( SettingsField::MqttBrokerPassword );
 
     switch( mqttMessageMode.at( 0 ) ) {
-      case '0':
+      case MqttMessageMode::Raw:
         debugOut << "Creating mqtt RAW sender" << debugEndl;
         mqttSender = NoStl::makeUnique<MqttRawSender<decltype(pubsubClient)>>( pubsubClient, basePath.charBegin(), mqttClient.charBegin(), mqttUser.charBegin(), mqttPassword.charBegin() );
         break;
-      case '1':
+      case MqttMessageMode::Topic:
         debugOut << "Creating mqtt TOPIC sender" << debugEndl;
         mqttSender = NoStl::makeUnique<MqttTopicSender<decltype(pubsubClient)>>( pubsubClient, basePath.charBegin(), mqttClient.charBegin(), mqttUser.charBegin(), mqttPassword.charBegin() );
         break;
-      case '2':
+      case MqttMessageMode::Json:
       default:
         debugOut << "Creating mqtt JSON sender" << debugEndl;
         mqttSender = NoStl::makeUnique<MqttJsonSender<decltype(pubsubClient)>>( pubsubClient, basePath.charBegin(), mqttClient.charBegin(), mqttUser.charBegin(), mqttPassword.charBegin() );
