@@ -206,6 +206,12 @@ class MqttTopicSender;
 template<typename>
 class MqttJsonSender;
 class WebAuthCookie;
+template<typename>
+class WebServerPrinter;
+class WebPageTemplatePart;
+class WebPageTemplate;
+template<typename,int>
+class WebPageRenderer;
 
 /**
 * Reimplement a few useful standard classes in the absence of the STL
@@ -348,6 +354,7 @@ private:
 
 #ifndef ARDUINO
 #define PROGMEM
+#define PGM_P const char*
 #define FPSTR(pstr_pointer) (reinterpret_cast<const __FlashStringHelper *>(pstr_pointer))
 #define F(string_literal) (FPSTR(PSTR(string_literal)))
 struct __FlashStringHelper {};
@@ -2828,6 +2835,137 @@ private:
 
 LocalBuffer<16> WebAuthCookie::gcmKey;
 LocalBuffer<12> WebAuthCookie::gcmInitVector;
+
+template<typename T>
+class WebServerPrinter final : public BufferPrinter {
+public:
+  WebServerPrinter( Buffer buf, T& server ) : BufferPrinter{ buf }, webServer{ server } {}
+
+  void sendContent() {
+    if( !isEmpty() ) {
+      webServer.sendContent( buffer.charBegin(), cursor - buffer.begin() );
+    }
+    clear();
+  }
+
+protected:
+  virtual bool onBufferFull() override {
+    sendContent();
+    return true;
+  }
+
+private:
+  T& webServer;
+};
+
+class WebPageTemplatePart {
+public:
+  enum Type {
+    String, Argument, TemplateHook
+  };
+
+  struct Hook { u32 id; };
+
+  WebPageTemplatePart( const __FlashStringHelper* s ) : storage{ .string{ s } }, type{ String } {}
+  WebPageTemplatePart( u32 arg ) : storage{ .argumentId{ arg } }, type{ Argument } {}
+  WebPageTemplatePart( Hook h ) : storage{ .argumentId{ h.id } }, type{ TemplateHook } {}
+
+  Type getType() const {
+    return type;
+  }
+
+  const __FlashStringHelper* asString() const {
+    assert( type == String );
+    return storage.string;
+  }
+
+  u32 asArgumentId() const {
+    assert( type == TemplateHook || type == Argument );
+    return storage.argumentId;
+  }
+
+private:
+  union {
+    const __FlashStringHelper* string;
+    u32 argumentId;
+  } storage;
+  Type type;
+};
+
+class WebPageTemplate {
+public:
+  WebPageTemplate( const WebPageTemplatePart* p, u32 cnt ) : parts{ p }, partCount{ cnt } {}
+
+  template<int N>
+  WebPageTemplate( const WebPageTemplatePart( &arr )[N] ) : parts{ arr }, partCount{ N } {}
+
+  template<typename T>
+  void forEachPart(const T& func ) const {
+    for( u32 i = 0; i < partCount; i++ ) {
+      func( parts[i] );
+    }
+  }
+
+private:
+  const WebPageTemplatePart* parts;
+  const u32 partCount;
+};
+
+template<typename T, int N>
+class WebPageRenderer {
+public:
+
+  WebPageRenderer( T& server )
+    : serverPrinter{ printBuffer, server }, webServer{ server } {}
+
+  using RenderFunction = void(*)(WebPageRenderer&, BufferPrinter&, bool, u32);
+  void render( const WebPageTemplate& pageTemplate, const RenderFunction func ) {
+    assert( !renderFunction );
+    serverPrinter.clear();
+
+    if( !webServer.chunkedResponseModeStart( 200, "text/html" ) ) {
+      webServer.send( 505, "text/html", "<h2>Error 505: HTTP1.1 required</h2>" );
+      return;
+    }
+
+    renderFunction = func;
+    renderRecursive( pageTemplate );
+
+    serverPrinter.sendContent();
+    webServer.chunkedResponseFinalize();
+    renderFunction = nullptr;
+  }
+
+  void renderRecursive( const WebPageTemplate& pageTemplate) {
+    assert( renderFunction );
+
+    pageTemplate.forEachPart( [&]( const WebPageTemplatePart& part ) {
+      switch( part.getType() ) {
+        case WebPageTemplatePart::String:
+          serverPrinter.sendContent();
+          webServer.sendContent_P( (PGM_P)part.asString() );
+          break;
+
+        case WebPageTemplatePart::TemplateHook:
+          renderFunction( *this, serverPrinter, true, part.asArgumentId() );
+          break;
+
+        case WebPageTemplatePart::Argument:
+          renderFunction( *this, serverPrinter, false, part.asArgumentId() );
+          break;
+
+        default:
+          assert( false );
+      }
+    } );
+  }
+
+private:
+  LocalBuffer<N> printBuffer;
+  WebServerPrinter<T> serverPrinter;
+  T& webServer;
+  RenderFunction renderFunction{ nullptr };
+};
 
 
 /**
