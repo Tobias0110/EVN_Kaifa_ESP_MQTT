@@ -1782,16 +1782,24 @@ private:
 template<typename T>
 class EEPROMHandle final {
 public:
-  EEPROMHandle(T& e, u32 size) : eeprom{ e } {
+  EEPROMHandle( T& e, u32 size ) : eeprom{ e }, didBegin{ true } {
     eeprom.begin( size );
   }
 
+  EEPROMHandle( const EEPROMHandle& ) = delete;
+  EEPROMHandle( EEPROMHandle&& h ) : eeprom{ h.eeprom }, didBegin{ h.didBegin } {
+    h.didBegin = false;
+  }
+
   ~EEPROMHandle() {
-    eeprom.end();
+    if( didBegin ) {
+      eeprom.end();
+    }
   }
 
 private:
   T& eeprom;
+  bool didBegin{ false };
 };
 
 class MBusLinkFrame {
@@ -3280,7 +3288,10 @@ public:
     buffer[len] = checksum & 0xFF;
   }
 
-  void begin( u32 size ) { didBegin = true; }
+  void begin( u32 size ) {
+    std::cout << "[!] EEPROM begin\r\n";
+    didBegin = true;
+  }
 
   void end() {
     std::cout << "[!] EEPROM ended\r\n";
