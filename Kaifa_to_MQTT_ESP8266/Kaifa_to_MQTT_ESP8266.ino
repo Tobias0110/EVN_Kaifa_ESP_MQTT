@@ -1404,6 +1404,7 @@ public:
     MqttBrokerPath,
     MqttMessageMode,
     DslmCosemDecryptionKey,
+    WebPagePassword,
     WebServerSSLCertificate,
     WebServerSSLKey,
 
@@ -1437,6 +1438,7 @@ public:
   const char* defaultValue() const { return fields[type].defaultValue; }
   Type enumType() const { return type; }
   bool isDerFile() const { return type == WebServerSSLCertificate || type == WebServerSSLKey; }
+  bool canAutoGenerateValue() const { return type == WebPagePassword; }
 
   bool isSecure() const {
     switch( type ) {
@@ -1446,12 +1448,38 @@ public:
       case DslmCosemDecryptionKey:
       case WebServerSSLCertificate:
       case WebServerSSLKey:
+      case WebPagePassword:
         return true;
       default:
         return false;
     }
   }
 
+  void autoGenerateValue( Buffer& buffer ) const {
+    assert( canAutoGenerateValue() );
+    assert( buffer.length() >= 13 );
+
+    // Fill with random bytes
+    constexpr u32 defaultWebPagePasswordLength = 12;
+    ESP8266TrueRandom.memfill( (char*)buffer.begin(), defaultWebPagePasswordLength );
+
+    // Map the bytes from the range [0x00-0xFF] to [0x00-0x49]
+    // Do not use module as this does not create a fair discrete uniform distribution
+    for( u32 i = 0; i != defaultWebPagePasswordLength; i++ ) {
+      u8 c = (u64) buffer[i] * 74 / 256; // Multiply then divide to prevent underflow
+      if( c < 12 ) {
+        static const char specialChars[] = "!@$%&/<>=?+_";
+        buffer[i] = specialChars[c];
+      } else if( c < 22 ) {
+        buffer[i] = '0' + (c - 12);
+      } else if( c < 48 ) {
+        buffer[i] = 'a' + (c - 22);
+      } else {
+        buffer[i] = 'A' + (c - 48);
+      }
+    }
+    buffer[defaultWebPagePasswordLength] = '\0';
+  }
 
   ErrorOr<void> validate( Buffer& buffer ) const {
     auto validateAndCompactHexString = [&buffer]( i32 numDigits ) -> ErrorOr<void> {
@@ -1604,6 +1632,7 @@ const SettingsField::FieldInfo SettingsField::fields[SettingsField::NumberOfFiel
   { MqttBrokerPath, "mqtt broker path", nullptr, 101 },
   { MqttMessageMode, "mqtt message mode (0 - raw, 1 - topics, 2 - json)", "2", 2 },
   { DslmCosemDecryptionKey, "dslm/cosem decryption key (meter key)", nullptr, 33 },
+  { WebPagePassword, "webpage password", nullptr, 21},
   { WebServerSSLCertificate, "web server ssl certificate", "[default]", 1000 },
   { WebServerSSLKey, "web server ssl private key", "[default]", 1300 },
 };
@@ -3586,6 +3615,7 @@ const char* eepromInitData[] = {
   "a/base/path",       // MqttBrokerPath
   "2",                 // MqttMessageMode
   "36C66639E48A8CA4D6BC8B282A793BBB", // DslmCosemDecryptionKey (example provided by EVN)
+  "a-secure-password", // WebPagePassword
   "\0\0\0",            // WebServerSSLCertificate
   "\0\0\0",            // WebServerSSLKey
 };
@@ -3624,7 +3654,7 @@ int main() {
   loop();
 
   webServer->doRequest( "/", HTTP_GET, "" );
-  webServer->doRequest( "/", HTTP_POST, "", { { "form", "login" }, { "client", "client-id" }, { "password", "password" } } );
+  webServer->doRequest( "/", HTTP_POST, "", { { "form", "login" }, { "client", "client-id" }, { "password", "a-secure-password" } } );
 
   auto cookieString = webServer->responseHeader( "Set-Cookie" );
   assert( cookieString.rfind( "auth=", 0 ) == 0 );
@@ -3877,12 +3907,11 @@ void webRenderLoginPage() {
   } );
 }
 
-void webRenderSettingsPage() {
+void webRenderSettingsPage( EEPROMHandle<decltype(EEPROM)> eepromHandle= { EEPROM, SettingsField::requiredStorageFor( SettingsField::AllButDerFiles ) } ) {
   // Do not call Settings.begin as this would start the checksum check. But we
   // only load the lower part (no der files) into memory right now, which would
   // cause an out of bounds access, as the checksum is expected to be at the very
   // end of the full block.
-  EEPROMHandle<decltype(EEPROM)> eepromHandle{ EEPROM, SettingsField::requiredStorageFor( SettingsField::AllButDerFiles ) };
 
   DefaultWebPageRenderer renderer{ *webServer };
   renderer.render( htmlBasePageTemplate(), []( DefaultWebPageRenderer& renderer, BufferPrinter& printer, const WebPageTemplatePart& part ) {
@@ -3925,9 +3954,14 @@ void webRenderRootPage() {
 }
 
 void webLoginHandler() {
+  // Again, do not call Settings.begin() for reasons mentioned above
+  EEPROMHandle<decltype(EEPROM)> eepromHandle{ EEPROM, SettingsField::requiredStorageFor( SettingsField::AllButDerFiles ) };
+  auto clientBuffer = Settings.getCStringBuffer( SettingsField::MqttBrokerClientId );
+  auto passwordBuffer = Settings.getCStringBuffer( SettingsField::WebPagePassword );
+
   auto clientName = webServer->arg( "client" );
   auto password = webServer->arg( "password" );
-  if( !clientName.equals( "client-id" ) || !password.equals( "password" ) ) {
+  if( !clientName.equals( clientBuffer.charBegin() ) || !password.equals( passwordBuffer.charBegin() ) ) {
     webRenderLoginPage();
     return;
   }
@@ -3940,7 +3974,7 @@ void webLoginHandler() {
 
   webServer->sendHeader( "Set-Cookie", printer.cString() );
 
-  webRenderSettingsPage();
+  webRenderSettingsPage( NoStl::move( eepromHandle ) );
 }
 
 void flushSerial() {
@@ -4220,17 +4254,22 @@ void runSetupWizard( bool oldDataIsValid ) {
       }
 
       // Try to get a default value
-      LocalBuffer<150> oldValueBuffer;
+      LocalBuffer<150> oldOrAutoGeneratedValueBuffer;
       const char* defaultValue = nullptr;
       if( oldDataIsValid ) {
-        Settings.copyCString( field, oldValueBuffer );
-        defaultValue = oldValueBuffer.charBegin();
+        Settings.copyCString( field, oldOrAutoGeneratedValueBuffer );
+        defaultValue = oldOrAutoGeneratedValueBuffer.charBegin();
         auto shownValue = field.isSecure() ? "<hidden-value>" : defaultValue;
         serialStream << " or just press enter to confirm old value (" << shownValue << ") ";
 
       } else if( field.defaultValue() ) {
         defaultValue = field.defaultValue();
         serialStream << " or just press enter to confirm default value (" << defaultValue << ") ";
+
+      } else if( field.canAutoGenerateValue() ) {
+        field.autoGenerateValue( oldOrAutoGeneratedValueBuffer );
+        defaultValue = oldOrAutoGeneratedValueBuffer.charBegin();
+        serialStream << " or just press enter to confirm the auto generated value (" << defaultValue << ") ";
       }
       serialStream << "\r\n(up to " << field.maxLength() - 1 << " chars) ";
 
