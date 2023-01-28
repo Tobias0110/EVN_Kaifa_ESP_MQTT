@@ -3901,9 +3901,11 @@ WebPageTemplate htmlSettingsPageTemplate() {
       <form action="/" method="post">
         <input type="text" name="form" value="wifi" hidden />
         <label for="ssid-field">SSID:</label>
-        <input id="ssid-field" type="text" name="ssid" required maxlength="32" value=")html" ), SettingsField::WifiSSID, F( R"html(" />
+        <div><input id="ssid-field" type="text" name="ssid" required maxlength="32" value=")html" ), SettingsField::WifiSSID, F( R"html(" /></div>
         <label for="wifi-password-field">Password:</label>
-        <input id="wifi-password-field" type="password" name="password" required maxlength="64" value=")html" ), SettingsField::WifiPassword, F( R"html(" />
+        <div><input id="wifi-password-field" type="password" name="password" required maxlength="64" value=")html" ), SettingsField::WifiPassword, F( R"html(" /></div>
+        <label for="wifi-password-field">Repeat Password:</label>
+        <div><input id="wifi-password-field" type="password" name="repeated-password" required maxlength="64" value=""/></div>
         <button type="submit">Save</button>
       </form>
     </div>
