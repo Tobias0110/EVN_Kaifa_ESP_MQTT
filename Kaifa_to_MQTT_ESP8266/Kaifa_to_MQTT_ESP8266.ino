@@ -3106,8 +3106,8 @@ public:
   WebPageRenderer( T& server )
     : serverPrinter{ printBuffer, server }, webServer{ server } {}
 
-  using RenderFunction = void(*)(WebPageRenderer&, BufferPrinter&, const WebPageTemplatePart&);
-  void render( const WebPageTemplate& pageTemplate, const RenderFunction func ) {
+  using RenderFunction = NoStl::FunctionRef<void(WebPageRenderer&, BufferPrinter&, const WebPageTemplatePart&)>;
+  void render( const WebPageTemplate& pageTemplate, RenderFunction func ) {
     assert( !renderFunction );
     serverPrinter.clear();
 
@@ -3121,7 +3121,7 @@ public:
 
     serverPrinter.sendContent();
     webServer.chunkedResponseFinalize();
-    renderFunction = nullptr;
+    renderFunction = RenderFunction{};
   }
 
   void renderRecursive( const WebPageTemplate& pageTemplate ) {
@@ -3152,7 +3152,7 @@ private:
   LocalBuffer<N> printBuffer;
   WebServerPrinter<T> serverPrinter;
   T& webServer;
-  RenderFunction renderFunction{ nullptr };
+  RenderFunction renderFunction;
 };
 
 
@@ -3811,6 +3811,13 @@ static const char webServerDefaultCertificateData[] PROGMEM =
 "gARMeDpuLXKHiW3OUTkh5LEIfzWJR7I=\n"
 "-----END CERTIFICATE-----\n";
 
+class WebPageTemplateArgs {
+public:
+  enum : u16 {
+    SettingsPageMessage
+  };
+};
+
 // Web page templates are constructed from F-strings which need to be inside
 // function scopes. Therefore the tempalte parts arrays are static constants
 // in functions.
@@ -3828,14 +3835,25 @@ WebPageTemplate htmlBasePageTemplate() {
         align-items: center;
         background: #bfccdf;
       }
-      .block {
+      .block, .buttons, .message {
         background: #f1f1f1;
         padding: 2rem;
         margin: 2rem;
         border-radius: 1rem;
         box-shadow: 4px 4px 7px 1px #4e4e4e73;
       }
-      form {
+      .buttons {
+        display: flex;
+        flex-direction: row;
+        gap: 1rem;
+      }
+      .message:empty {
+        display: none;
+      }
+      .message > span {
+        color: red;
+      }
+      .block form {
         display: grid;
         grid-template-columns: 1fr 4fr;
         max-width: 20rem;
@@ -3878,6 +3896,7 @@ WebPageTemplate htmlLoginPageTemplate() {
 
 WebPageTemplate htmlSettingsPageTemplate() {
   static const WebPageTemplatePart parts[] = { F( R"html(<div class="block">
+    <div class="message">)html" ), { SettingsField::NumberOfFields, WebPageTemplateArgs::SettingsPageMessage }, F( R"html(</div>
       <h2>Wifi</h2>
       <form action="/" method="post">
         <input type="text" name="form" value="wifi" hidden />
@@ -3985,17 +4004,27 @@ void webRenderLoginPage() {
   } );
 }
 
-void webRenderSettingsPage( EEPROMHandle<decltype(EEPROM)> eepromHandle= { EEPROM, SettingsField::requiredStorageFor( SettingsField::AllButDerFiles ) } ) {
+void webRenderSettingsPage(
+  EEPROMHandle<decltype(EEPROM)> eepromHandle= { EEPROM, SettingsField::requiredStorageFor( SettingsField::AllButDerFiles ) },
+  const char* message= nullptr
+) {
   // Do not call Settings.begin as this would start the checksum check. But we
   // only load the lower part (no der files) into memory right now, which would
   // cause an out of bounds access, as the checksum is expected to be at the very
   // end of the full block.
 
   DefaultWebPageRenderer renderer{ *webServer };
-  renderer.render( htmlBasePageTemplate(), []( DefaultWebPageRenderer& renderer, BufferPrinter& printer, const WebPageTemplatePart& part ) {
+  renderer.render( htmlBasePageTemplate(), [&]( DefaultWebPageRenderer& renderer, BufferPrinter& printer, const WebPageTemplatePart& part ) {
     if( part == WebPageTemplatePart::TemplateHook ) {
       assert( part.asArgument().first == 0 );
       renderer.renderRecursive( htmlSettingsPageTemplate() );
+      return;
+    }
+
+    if( part.asArgument().first == SettingsField::NumberOfFields ) {
+      if( part.asArgument().second == WebPageTemplateArgs::SettingsPageMessage && message ) {
+        printer.print( message );
+      }
       return;
     }
 
