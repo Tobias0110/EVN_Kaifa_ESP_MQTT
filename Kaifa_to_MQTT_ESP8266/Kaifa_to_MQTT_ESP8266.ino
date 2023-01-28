@@ -336,6 +336,84 @@ namespace NoStl {
   UniquePtr<T> makeUnique( Args&&... args ) {
     return UniquePtr<T>{ new T( forward<Args>( args )... ) };
   }
+
+  template<typename T>
+  class FunctionRef {};
+
+  template<typename R, typename ...As>
+  class FunctionRef<R( As... )> {
+  public:
+    FunctionRef() {
+      new (&storage) EmptyHelper{};
+    }
+
+    template<typename T>
+    FunctionRef( const T& lam ) {
+      static_assert(sizeof( HelperImpl<T> ) <= sizeof( storage ));
+      new (&storage) HelperImpl<T>{ lam };
+    }
+
+    R operator()( As... args ) const {
+      return helper()->call( forward<As>( args )... );
+    }
+
+    operator bool() const {
+      return !helper()->isEmpty();
+    }
+
+    FunctionRef& operator=( const FunctionRef& other ) {
+      other.helper()->copyTo( storage );
+      return *this;
+    }
+
+  private:
+    // Polymorphic type erasure helper class
+    class Helper {
+    public:
+      virtual bool isEmpty() const = 0;
+      virtual R call( As... ) const = 0;
+      virtual void copyTo( u8* ) const = 0;
+    };
+
+    class EmptyHelper final : Helper {
+    public:
+      virtual bool isEmpty() const override {
+        return true;
+      }
+      
+      virtual void copyTo( u8* ptr ) const {
+        new (ptr) EmptyHelper{};
+      }
+
+      virtual R call( As... args ) const override { /* NOP */ }
+    };
+
+    template<typename T>
+    class HelperImpl final : Helper {
+      const T& lamRef;
+
+    public:
+      HelperImpl( const T& l ) : lamRef{ l } {}
+
+      virtual bool isEmpty() const override {
+        return false;
+      }
+
+      virtual void copyTo( u8* ptr ) const {
+        new (ptr) HelperImpl{ lamRef };
+      }
+
+      virtual R call( As... args ) const override {
+        return lamRef( forward<As>( args )... );
+      }
+    };
+
+    const Helper* helper() const {
+      return reinterpret_cast<const Helper*>(&storage);
+    }
+
+    u8 storage[sizeof( HelperImpl<R( * )(As...)> )];
+  };
 }
 
 
