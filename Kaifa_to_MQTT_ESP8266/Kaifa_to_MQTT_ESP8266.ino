@@ -3930,7 +3930,7 @@ WebPageTemplate htmlSettingsPageTemplate() {
         <label for="mqtt-raw-field">Send Raw:</label>
         <div><input id="mqtt-raw-field" type="radio" name="mode" value="0" )html" ), { SettingsField::MqttMessageMode, MqttMessageMode::Raw }, F( R"html(/></div>
         <label for="mqtt-topic-field">Send Topics:</label>
-        <div><input id="mqtt-topic-field" type="radio" name="mode" value="1" ")html" ), { SettingsField::MqttMessageMode, MqttMessageMode::Topic }, F( R"html(/></div>
+        <div><input id="mqtt-topic-field" type="radio" name="mode" value="1" )html" ), { SettingsField::MqttMessageMode, MqttMessageMode::Topic }, F( R"html(/></div>
         <label for="mqtt-json-field">Send JSON:</label>
         <div><input id="mqtt-json-field" type="radio" name="mode" value="2" )html" ), { SettingsField::MqttMessageMode, MqttMessageMode::Json }, F( R"html(/></div>
         <button type="submit">Save</button>
