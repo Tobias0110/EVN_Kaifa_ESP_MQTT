@@ -3959,7 +3959,7 @@ LocalBuffer<21> mqttServerDomain;
 
 using DefaultWebPageRenderer = WebPageRenderer<decltype(*webServer), 256>;
 
-bool webReqeustIsAuthenticated() {
+bool webRequestIsAuthenticated() {
   // Cut out the auth cookie part, because there could be multiple cookies for some reason
   auto cookieString = webServer->header( "Cookie" );
   i32 beginIndex = cookieString.indexOf( "auth=" );
@@ -4054,7 +4054,7 @@ void webRenderRootPage() {
     Serial.println( webServer->header( i ) );
   }
 
-  if( !webReqeustIsAuthenticated() ) {
+  if( !webRequestIsAuthenticated() ) {
     webRenderLoginPage();
     return;
   }
