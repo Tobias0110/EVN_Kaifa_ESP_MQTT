@@ -380,7 +380,7 @@ namespace NoStl {
       virtual bool isEmpty() const override {
         return true;
       }
-      
+
       virtual void copyTo( u8* ptr ) const {
         new (ptr) EmptyHelper{};
       }
@@ -705,10 +705,10 @@ public:
   }
 
   template<typename T>
-  void encodeHtml( T& stream, bool nullTerminate= true ) {
+  void encodeHtml( T& stream, bool nullTerminate = true ) {
     u32 i = 0;
-    auto append = [&](const char* s) {
-      strncpy( (char*)ptr+ i, s, byteCount - i );
+    auto append = [&]( const char* s ) {
+      strncpy( (char*)ptr + i, s, byteCount - i );
       i += strlen( s );
     };
 
@@ -1503,7 +1503,7 @@ public:
   };
 
   SettingsField( Type t ) : type{ t } {}
-  explicit SettingsField( u32 t ) : type{ (Type)t } { assert(t < NumberOfFields); }
+  explicit SettingsField( u32 t ) : type{ (Type)t } { assert( t < NumberOfFields ); }
   SettingsField( const SettingsField& ) = default;
 
   u32 calcOffset() const {
@@ -1550,7 +1550,7 @@ public:
     // Map the bytes from the range [0x00-0xFF] to [0x00-0x49]
     // Do not use module as this does not create a fair discrete uniform distribution
     for( u32 i = 0; i != defaultWebPagePasswordLength; i++ ) {
-      u8 c = (u64) buffer[i] * 74 / 256; // Multiply then divide to prevent underflow
+      u8 c = (u64)buffer[i] * 74 / 256; // Multiply then divide to prevent underflow
       if( c < 12 ) {
         static const char specialChars[] = "!@$%&/<>=?+_";
         buffer[i] = specialChars[c];
@@ -1697,8 +1697,8 @@ public:
   }
 
   enum SpaceCalculationMode : bool {
-    AllButDerFiles= false,
-    OnlyDerFiles= true
+    AllButDerFiles = false,
+    OnlyDerFiles = true
   };
 
   static u32 requiredStorage() {
@@ -1709,7 +1709,7 @@ public:
     return len;
   }
 
-  static u32 requiredStorageFor(SpaceCalculationMode mode) {
+  static u32 requiredStorageFor( SpaceCalculationMode mode ) {
     u32 len = 0;
     for( u32 i = 0; i != NumberOfFields; i++ ) {
       SettingsField field{ (Type)i };
@@ -1738,7 +1738,7 @@ const SettingsField::FieldInfo SettingsField::fields[SettingsField::NumberOfFiel
   { MqttBrokerPath, "mqtt broker path", nullptr, 101 },
   { MqttMessageMode, "mqtt message mode (0 - raw, 1 - topics, 2 - json)", "2", 2 },
   { DslmCosemDecryptionKey, "dslm/cosem decryption key (meter key)", nullptr, 33 },
-  { WebPagePassword, "webpage password", nullptr, 21},
+  { WebPagePassword, "webpage password", nullptr, 21 },
   { WebServerSSLCertificate, "web server ssl certificate", "[default]", 1000 },
   { WebServerSSLKey, "web server ssl private key", "[default]", 1300 },
 };
@@ -3086,7 +3086,7 @@ public:
     return type;
   }
 
-  bool operator==(Type t) const {
+  bool operator==( Type t ) const {
     return type == t;
   }
 
@@ -3134,7 +3134,7 @@ public:
   WebPageRenderer( T& server )
     : serverPrinter{ printBuffer, server }, webServer{ server } {}
 
-  using RenderFunction = NoStl::FunctionRef<void(WebPageRenderer&, BufferPrinter&, const WebPageTemplatePart&)>;
+  using RenderFunction = NoStl::FunctionRef<void( WebPageRenderer&, BufferPrinter&, const WebPageTemplatePart& )>;
   void render( const WebPageTemplate& pageTemplate, RenderFunction func ) {
     assert( !renderFunction );
     serverPrinter.clear();
@@ -4029,7 +4029,7 @@ bool webRequestIsAuthenticated() {
 
 void webRenderLoginPage() {
   DefaultWebPageRenderer renderer{ *webServer };
-  renderer.render( htmlBasePageTemplate(), []( DefaultWebPageRenderer& renderer, BufferPrinter& printer, const WebPageTemplatePart& part) {
+  renderer.render( htmlBasePageTemplate(), []( DefaultWebPageRenderer& renderer, BufferPrinter& printer, const WebPageTemplatePart& part ) {
     if( part == WebPageTemplatePart::TemplateHook ) {
       assert( part.asArgument().first == 0 );
       renderer.renderRecursive( htmlLoginPageTemplate() );
@@ -4039,8 +4039,8 @@ void webRenderLoginPage() {
 }
 
 void webRenderSettingsPage(
-  EEPROMHandle<decltype(EEPROM)> eepromHandle= { EEPROM, SettingsField::requiredStorageFor( SettingsField::AllButDerFiles ) },
-  const char* message= nullptr
+  EEPROMHandle<decltype(EEPROM)> eepromHandle = { EEPROM, SettingsField::requiredStorageFor( SettingsField::AllButDerFiles ) },
+  const char* message = nullptr
 ) {
   // Do not call Settings.begin as this would start the checksum check. But we
   // only load the lower part (no der files) into memory right now, which would
@@ -4063,7 +4063,7 @@ void webRenderSettingsPage(
     }
 
     SettingsField field{ part.asArgument().first };
-    auto fieldBuffer= Settings.getCStringBuffer( field );
+    auto fieldBuffer = Settings.getCStringBuffer( field );
 
     if( field == SettingsField::MqttMessageMode ) {
       if( fieldBuffer[0] == part.asArgument().second ) {
