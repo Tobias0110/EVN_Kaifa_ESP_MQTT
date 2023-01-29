@@ -810,6 +810,9 @@ public:
   static Buffer empty() { return { nullptr, 0 }; }
   static OwnedBuffer allocate( u32 size );
   static ErrorOr<OwnedBuffer> fromHexString( const char* hexString );
+  static Buffer fromString( const String& str ) {
+    return { (u8*)str.c_str(), str.length()+ 1 };
+  }
 
   auto length() const { return byteCount; }
   auto at( u32 idx ) const { assert( idx < byteCount );  return ptr[idx]; }
@@ -1658,6 +1661,28 @@ public:
         }
         TRY( validatePrintableASCII() );
         break;
+    }
+
+    return {};
+  }
+
+  struct ValidationPair {
+    const SettingsField& field;
+    const String& string;
+  };
+
+  template<int N>
+  static ErrorOr<void> validateStrings( const ValidationPair( &pairs )[N] ) {
+    return validateStrings( pairs, N );
+  }
+
+  static ErrorOr<void> validateStrings( const ValidationPair pairs[], u32 count ) {
+    for( u32 i = 0; i != count; i++ ) {
+      auto& string = pairs[i].string;
+      LocalBuffer<150> buffer;
+      buffer.insertAt( Buffer::fromString( string ), 0 );
+      buffer.shrinkLength( string.length() + 1 );
+      TRY( pairs[i].field.validate( buffer ) );
     }
 
     return {};
@@ -3744,6 +3769,10 @@ int main() {
 
   webServer->doRequest( "/", HTTP_GET, "", {}, { { "Cookie", cookie } } );
 
+  webServer->doRequest( "/", HTTP_POST, "", {
+    { "form", "wifi" }, { "ssid", "newSSID" }, { "password", "newPassword" }, { "repeated-password", "newPassword" }
+    }, { { "Cookie", cookie } } );
+
   return 0;
 }
 
@@ -4089,6 +4118,43 @@ void webLoginHandler() {
   webRenderSettingsPage( NoStl::move( eepromHandle ) );
 }
 
+void webWifiSettingsHandler() {
+  if( !webRequestIsAuthenticated() ) {
+    webRenderLoginPage();
+    return;
+  }
+
+  auto ssid = webServer->arg( "ssid" );
+  auto password = webServer->arg( "password" );
+  auto repeatedPassword = webServer->arg( "repeated-password" );
+
+  auto validationError = SettingsField::validateStrings( {
+    { SettingsField::WifiSSID, ssid },
+    { SettingsField::WifiPassword, password }
+    } );
+
+  // Load everything, as all data is required to compute and update the checksum
+  EEPROMHandle<decltype(EEPROM)> eepromHandle{ EEPROM, SettingsField::requiredStorage() + 4 };
+
+  if( validationError.isError() ) {
+    webRenderSettingsPage( NoStl::move( eepromHandle ), validationError.error().message() );
+    return;
+  }
+
+  if( !password.equals( repeatedPassword ) ) {
+    webRenderSettingsPage( NoStl::move( eepromHandle ), "The password fields do not match");
+    return;
+  }
+
+  debugOut << "Updating wifi settings to '" << ssid << "' and '" << password << "'\r\n";
+
+  Settings.set( SettingsField::WifiSSID, Buffer::fromString( ssid ) );
+  Settings.set( SettingsField::WifiPassword, Buffer::fromString( password ) );
+  Settings.save();
+
+  webRenderSettingsPage( NoStl::move( eepromHandle ), "Updated wifi settings. Restart needed.");
+}
+
 void flushSerial() {
   while( Serial.available() ) {
     Serial.read();
@@ -4256,12 +4322,12 @@ void initWebServer() {
     if( formType.equalsIgnoreCase( "login" ) ) {
       webLoginHandler();
       return;
-    } else {
-      webServer->send( 204, "text/plain", "Unknown form type" );
+    } else if( formType.equalsIgnoreCase( "wifi" ) ) {
+      webWifiSettingsHandler();
       return;
     }
 
-    webServer->send( 200, "text/plain", "OK" );
+    webServer->send( 204, "text/plain", "Unknown form type" );
   } );
 
   webServer->onNotFound( []() {
