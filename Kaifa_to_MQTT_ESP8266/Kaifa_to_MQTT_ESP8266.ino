@@ -472,6 +472,9 @@ private:
   std::string data;
 };
 
+std::ostream& operator<<( std::ostream& o, const String& s ) {
+  return o << s.str();
+}
 
 class DummyESP8266TrueRandom {
 public:
