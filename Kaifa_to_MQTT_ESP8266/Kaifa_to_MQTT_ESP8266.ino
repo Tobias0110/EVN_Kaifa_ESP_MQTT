@@ -447,7 +447,7 @@ public:
   String( String&& s ) : data{ std::move( s.data ) } {}
   String( std::string s ) : data{ std::move( s ) } {}
   bool isEmpty() const { return data.size() == 0; }
-  bool equalsIgnoreCase( const String& s ) {
+  bool equalsIgnoreCase( const String& s ) const {
     return std::equal( data.begin(), data.end(), s.data.begin(), s.data.end(), []( char a, char b ) {
       return tolower( a ) == tolower( b );
     } );
@@ -811,7 +811,7 @@ public:
   static OwnedBuffer allocate( u32 size );
   static ErrorOr<OwnedBuffer> fromHexString( const char* hexString );
   static Buffer fromString( const String& str ) {
-    return { (u8*)str.c_str(), str.length()+ 1 };
+    return { (u8*)str.c_str(), str.length() + 1 };
   }
 
   auto length() const { return byteCount; }
@@ -3512,16 +3512,6 @@ enum HttpMethod { HTTP_GET, HTTP_POST };
 
 class DummyWebServerSecure {
 private:
-  auto getArgIteratorByIndex( u32 idx ) const {
-    assert( idx < args() );
-    auto it = currentFormArguments.begin();
-    while( idx > 0 ) {
-      idx--;
-      it++;
-    }
-    return it;
-  }
-
   auto getHeaderIteratorByIndex( u32 idx ) const {
     assert( idx < headers() );
     auto it = currentHeaders.begin();
@@ -3590,23 +3580,33 @@ public:
 
   void handleClient() {}
 
-  bool hasArg( const char* name ) const { return currentFormArguments.contains( name ); }
-  String arg( const char* name ) const {
-    auto it = currentFormArguments.find( name );
-    assert( it != currentFormArguments.end() );
-    return it->second;
+  bool hasArg( const char* name ) const {
+    for( auto& p : currentFormArguments ) {
+      if( p.first.equalsIgnoreCase( name ) ) {
+        return true;
+      }
+    }
+    return false;
+  }
+  const String& arg( const char* name ) const {
+    for( auto& p : currentFormArguments ) {
+      if( p.first.equalsIgnoreCase( name ) ) {
+        return p.second;
+      }
+    }
+    assert( false );
   }
 
   u32 args() const {
     return currentFormArguments.size();
   }
 
-  String arg( u32 idx ) const {
-    return getArgIteratorByIndex( idx )->second;
+  const String& arg( u32 idx ) const {
+    return currentFormArguments[idx].second;
   }
 
-  String argName( u32 idx ) const {
-    return getArgIteratorByIndex( idx )->first;
+  const String& argName( u32 idx ) const {
+    return currentFormArguments[idx].first;
   }
 
   template<typename ...T>
@@ -3635,9 +3635,9 @@ public:
   using StringMapInitList = std::initializer_list<std::pair<std::string, std::string>>;
   void doRequest( std::string url, HttpMethod method, std::string body, StringMapInitList formArguments = {}, StringMapInitList headers = {} ) {
     currentFormArguments.clear();
-    currentFormArguments.emplace( std::make_pair( std::string{ "plain" }, std::move( body ) ) );
+    currentFormArguments.emplace_back( std::make_pair( String{ "plain" }, std::move( body ) ) );
     for( auto& a : formArguments ) {
-      currentFormArguments.emplace( std::move( a ) );
+      currentFormArguments.emplace_back( std::move( a ) );
     }
 
     currentHeaders.clear();
@@ -3673,7 +3673,7 @@ public:
 
 private:
   std::map<std::string, std::map<HttpMethod, RequestHandlerFunction>> handlers;
-  std::map<std::string, std::string> currentFormArguments;
+  std::vector<std::pair<String, String>> currentFormArguments;
   std::map<std::string, std::string> currentHeaders;
   std::map<std::string, std::string> responseHeaders;
   RequestHandlerFunction notFoundHandler{ nullptr };
@@ -4117,14 +4117,14 @@ void webLoginHandler() {
 }
 
 void webWifiSettingsHandler() {
+  auto& ssid = webServer->arg( "ssid" );
+  auto& password = webServer->arg( "password" );
+  auto& repeatedPassword = webServer->arg( "repeated-password" );
   if( !webRequestIsAuthenticated() ) {
     webRenderLoginPage();
     return;
   }
 
-  auto ssid = webServer->arg( "ssid" );
-  auto password = webServer->arg( "password" );
-  auto repeatedPassword = webServer->arg( "repeated-password" );
 
   auto validationError = SettingsField::validateStrings( {
     { SettingsField::WifiSSID, ssid },
@@ -4316,7 +4316,7 @@ void initWebServer() {
       Serial.println( webServer->arg( i ) );
     }
 
-    auto formType = webServer->arg( "form" );
+    auto& formType = webServer->arg( "form" );
     if( formType.equalsIgnoreCase( "login" ) ) {
       webLoginHandler();
       return;
