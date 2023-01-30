@@ -4115,7 +4115,7 @@ void webLoginHandler() {
 
   webServer->sendHeader( "Set-Cookie", printer.cString() );
 
-  webRenderSettingsPage( NoStl::move( eepromHandle ) );
+  webRenderSettingsPage( NoStl::move( eepromHandle ), "Hello, welcome back." );
 }
 
 void webWifiSettingsHandler() {
