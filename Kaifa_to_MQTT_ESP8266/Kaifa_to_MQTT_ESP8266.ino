@@ -3990,6 +3990,7 @@ LocalBuffer<45> mqttServerCertFingerprint;
 LocalBuffer<21> mqttServerDomain;
 
 using DefaultWebPageRenderer = WebPageRenderer<decltype(*webServer), 256>;
+using EEPROMHandleType = EEPROMHandle<decltype(EEPROM)>;
 
 bool webRequestIsAuthenticated() {
   // Cut out the auth cookie part, because there could be multiple cookies for some reason
@@ -4038,10 +4039,7 @@ void webRenderLoginPage() {
   } );
 }
 
-void webRenderSettingsPage(
-  EEPROMHandle<decltype(EEPROM)> eepromHandle = { EEPROM, SettingsField::requiredStorageFor( SettingsField::AllButDerFiles ) },
-  const char* message = nullptr
-) {
+void webRenderSettingsPage( EEPROMHandleType eepromHandle, const char* message = nullptr ) {
   // Do not call Settings.begin as this would start the checksum check. But we
   // only load the lower part (no der files) into memory right now, which would
   // cause an out of bounds access, as the checksum is expected to be at the very
@@ -4091,12 +4089,12 @@ void webRenderRootPage() {
     return;
   }
 
-  webRenderSettingsPage();
+  webRenderSettingsPage( EEPROMHandleType{ EEPROM, SettingsField::requiredStorageFor( SettingsField::AllButDerFiles ) } );
 }
 
 void webLoginHandler() {
   // Again, do not call Settings.begin() for reasons mentioned above
-  EEPROMHandle<decltype(EEPROM)> eepromHandle{ EEPROM, SettingsField::requiredStorageFor( SettingsField::AllButDerFiles ) };
+  EEPROMHandleType eepromHandle{ EEPROM, SettingsField::requiredStorageFor( SettingsField::AllButDerFiles ) };
   auto clientBuffer = Settings.getCStringBuffer( SettingsField::MqttBrokerClientId );
   auto passwordBuffer = Settings.getCStringBuffer( SettingsField::WebPagePassword );
 
@@ -4538,7 +4536,7 @@ void setup() {
 
   constexpr auto EEPROMBytesToLoad = 2700;
   assert( EEPROMBytesToLoad >= SettingsField::requiredStorage() + 4 );
-  EEPROMHandle<decltype(EEPROM)> eepromHandle{ EEPROM, EEPROMBytesToLoad };
+  EEPROMHandleType eepromHandle{ EEPROM, EEPROMBytesToLoad };
 
   bool showSetup = false;
   bool settingsDataIsValid = true;
