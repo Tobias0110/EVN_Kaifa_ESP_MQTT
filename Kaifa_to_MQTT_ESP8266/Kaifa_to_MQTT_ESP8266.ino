@@ -3774,6 +3774,8 @@ int main() {
   //  }, { { "Cookie", cookie } } );
 
   webServer->doRequest( "/", HTTP_POST, "", {
+    { "form", "mqtt" }, { "address", "2.2.2.2" }, { "port", "8883" }, { "fingerprint", "[insecure]" }, { "user", "coolUser" }, { "password", "coolPassword" },
+    { "client-id", "coolId" }, { "path", "/a/cool/path" }, { "mode", "1" }
     }, { { "Cookie", cookie } } );
 
   return 0;
@@ -4164,7 +4166,31 @@ void webWifiSettingsHandler() {
     { SettingsField::WifiSSID, ssid },
     { SettingsField::WifiPassword, password }
     }, "Updated wifi settings. Restart needed.", NoStl::move( eepromHandle ) );
+}
 
+void webMqttSettingsHandler() {
+  auto& address = webServer->arg( "address" );
+  auto& port = webServer->arg( "port" );
+  auto& fingerprint = webServer->arg( "fingerprint" );
+  auto& user = webServer->arg( "user" );
+  auto& password = webServer->arg( "password" );
+  auto& clientId = webServer->arg( "client-id" );
+  auto& path = webServer->arg( "path" );
+  auto& mode = webServer->arg( "mode" );
+
+  // Load everything, as all data is required to compute and update the checksum
+  EEPROMHandleType eepromHandle{ EEPROM, SettingsField::requiredStorage() + 4 };
+
+  webSettingsHandler( {
+    { SettingsField::MqttBrokerAddress, address},
+    { SettingsField::MqttBrokerPort, port },
+    { SettingsField::MqttCertificateFingerprint, fingerprint },
+    { SettingsField::MqttBrokerUser, user },
+    { SettingsField::MqttBrokerPassword, password },
+    { SettingsField::MqttBrokerClientId, clientId },
+    { SettingsField::MqttBrokerPath, path },
+    { SettingsField::MqttMessageMode, mode }
+    }, "Updated mqtt settings. Restart needed.", NoStl::move( eepromHandle ) );
 }
 
 void flushSerial() {
@@ -4336,6 +4362,9 @@ void initWebServer() {
       return;
     } else if( formType.equalsIgnoreCase( "wifi" ) ) {
       webWifiSettingsHandler();
+      return;
+    } else if( formType.equalsIgnoreCase( "mqtt" ) ) {
+      webMqttSettingsHandler();
       return;
     }
 
