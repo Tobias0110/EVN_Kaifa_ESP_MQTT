@@ -3989,7 +3989,7 @@ LocalBuffer<45> mqttServerCertFingerprint;
 // a copy of the string it is provided. The lifetime has to be managed by the user (us).
 LocalBuffer<21> mqttServerDomain;
 
-using DefaultWebPageRenderer = WebPageRenderer<decltype(*webServer), 256>;
+using WebPageRendererType = WebPageRenderer<decltype(*webServer), 256>;
 using EEPROMHandleType = EEPROMHandle<decltype(EEPROM)>;
 
 bool webRequestIsAuthenticated() {
@@ -4029,8 +4029,8 @@ bool webRequestIsAuthenticated() {
 }
 
 void webRenderLoginPage() {
-  DefaultWebPageRenderer renderer{ *webServer };
-  renderer.render( htmlBasePageTemplate(), []( DefaultWebPageRenderer& renderer, BufferPrinter& printer, const WebPageTemplatePart& part ) {
+  WebPageRendererType renderer{ *webServer };
+  renderer.render( htmlBasePageTemplate(), []( WebPageRendererType& renderer, BufferPrinter& printer, const WebPageTemplatePart& part ) {
     if( part == WebPageTemplatePart::TemplateHook ) {
       assert( part.asArgument().first == 0 );
       renderer.renderRecursive( htmlLoginPageTemplate() );
@@ -4045,8 +4045,8 @@ void webRenderSettingsPage( EEPROMHandleType eepromHandle, const char* message =
   // cause an out of bounds access, as the checksum is expected to be at the very
   // end of the full block.
 
-  DefaultWebPageRenderer renderer{ *webServer };
-  renderer.render( htmlBasePageTemplate(), [&]( DefaultWebPageRenderer& renderer, BufferPrinter& printer, const WebPageTemplatePart& part ) {
+  WebPageRendererType renderer{ *webServer };
+  renderer.render( htmlBasePageTemplate(), [&]( WebPageRendererType& renderer, BufferPrinter& printer, const WebPageTemplatePart& part ) {
     if( part == WebPageTemplatePart::TemplateHook ) {
       assert( part.asArgument().first == 0 );
       renderer.renderRecursive( htmlSettingsPageTemplate() );
