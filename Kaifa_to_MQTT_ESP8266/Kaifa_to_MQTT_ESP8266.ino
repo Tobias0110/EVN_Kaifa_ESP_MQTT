@@ -3769,8 +3769,11 @@ int main() {
 
   webServer->doRequest( "/", HTTP_GET, "", {}, { { "Cookie", cookie } } );
 
+  //webServer->doRequest( "/", HTTP_POST, "", {
+  //  { "form", "wifi" }, { "ssid", "newSSID" }, { "password", "newPassword" }, { "repeated-password", "newPassword" }
+  //  }, { { "Cookie", cookie } } );
+
   webServer->doRequest( "/", HTTP_POST, "", {
-    { "form", "wifi" }, { "ssid", "newSSID" }, { "password", "newPassword" }, { "repeated-password", "newPassword" }
     }, { { "Cookie", cookie } } );
 
   return 0;
@@ -4116,41 +4119,52 @@ void webLoginHandler() {
   webRenderSettingsPage( NoStl::move( eepromHandle ), "Hello, welcome back." );
 }
 
-void webWifiSettingsHandler() {
-  auto& ssid = webServer->arg( "ssid" );
-  auto& password = webServer->arg( "password" );
-  auto& repeatedPassword = webServer->arg( "repeated-password" );
+void webSettingsHandlerImpl( const SettingsField::ValidationPair* pairs, u32 count, const char* msg, EEPROMHandleType eepromHandle ) {
   if( !webRequestIsAuthenticated() ) {
     webRenderLoginPage();
     return;
   }
 
-
-  auto validationError = SettingsField::validateStrings( {
-    { SettingsField::WifiSSID, ssid },
-    { SettingsField::WifiPassword, password }
-    } );
-
-  // Load everything, as all data is required to compute and update the checksum
-  EEPROMHandle<decltype(EEPROM)> eepromHandle{ EEPROM, SettingsField::requiredStorage() + 4 };
-
+  auto validationError = SettingsField::validateStrings(pairs, count);
   if( validationError.isError() ) {
+    debugOut << "Caught validation error in ::webSettingsHandler: " << validationError.error().message() << debugEndl;
     webRenderSettingsPage( NoStl::move( eepromHandle ), validationError.error().message() );
     return;
   }
 
+  for( u32 i = 0; i != count; i++ ) {
+    Settings.set( pairs[i].field, Buffer::fromString( pairs[i].string ) );
+  }
+  Settings.save();
+
+  webRenderSettingsPage( NoStl::move( eepromHandle ), msg );
+}
+
+template<int N>
+void webSettingsHandler( const SettingsField::ValidationPair( &pairs )[N], const char* msg, EEPROMHandleType eepromHandle ) {
+  webSettingsHandlerImpl( pairs, N, msg, NoStl::move( eepromHandle ) );
+}
+
+void webWifiSettingsHandler() {
+  auto& ssid = webServer->arg( "ssid" );
+  auto& password = webServer->arg( "password" );
+  auto& repeatedPassword = webServer->arg( "repeated-password" );
+
+  // Load everything, as all data is required to compute and update the checksum
+  EEPROMHandleType eepromHandle{ EEPROM, SettingsField::requiredStorage() + 4 };
+
   if( !password.equals( repeatedPassword ) ) {
-    webRenderSettingsPage( NoStl::move( eepromHandle ), "The password fields do not match");
+    webRenderSettingsPage( NoStl::move( eepromHandle ), "The password fields do not match" );
     return;
   }
 
   debugOut << "Updating wifi settings to '" << ssid << "' and '" << password << "'\r\n";
 
-  Settings.set( SettingsField::WifiSSID, Buffer::fromString( ssid ) );
-  Settings.set( SettingsField::WifiPassword, Buffer::fromString( password ) );
-  Settings.save();
+  webSettingsHandler( {
+    { SettingsField::WifiSSID, ssid },
+    { SettingsField::WifiPassword, password }
+    }, "Updated wifi settings. Restart needed.", NoStl::move( eepromHandle ) );
 
-  webRenderSettingsPage( NoStl::move( eepromHandle ), "Updated wifi settings. Restart needed.");
 }
 
 void flushSerial() {
