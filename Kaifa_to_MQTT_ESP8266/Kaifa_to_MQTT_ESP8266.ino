@@ -434,6 +434,13 @@ private:
 };
 
 #ifndef ARDUINO
+#define SERIAL_8N1 0x00
+#define SERIAL_8E1 0x01
+#define D0     0x00
+#define OUTPUT 0x00
+#define LOW    0x00
+#define HIGH   0x01
+#define WL_CONNECTED 0x0A
 #define PROGMEM
 #define PGM_P const char*
 #define FPSTR(pstr_pointer) (reinterpret_cast<const __FlashStringHelper *>(pstr_pointer))
@@ -3195,14 +3202,6 @@ private:
 * and a real debugger is available, wich improves developer (my) happiness.
 **/
 #ifndef ARDUINO
-
-#define SERIAL_8N1 0x00
-#define SERIAL_8E1 0x01
-#define D0     0x00
-#define OUTPUT 0x00
-#define LOW    0x00
-#define HIGH   0x01
-#define WL_CONNECTED 0x0A
 
 class DummyIPAddress {
 public:
