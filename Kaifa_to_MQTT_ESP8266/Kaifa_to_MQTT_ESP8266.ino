@@ -3898,7 +3898,10 @@ WebPageTemplate htmlBasePageTemplate() {
       }
       button {
         grid-column: 2;
-        max-width: 4rem;
+        display: flex;
+        flex-direction: row;
+        gap: 1rem;
+        justify-content: center;
       }
       :not(.login) > input:invalid {
         border-color: red;
@@ -4083,12 +4086,6 @@ void webRenderSettingsPage( EEPROMHandleType eepromHandle, const char* message =
 }
 
 void webRenderRootPage() {
-  for( u32 i = 0; i < webServer->headers(); i++ ) {
-    Serial.print( webServer->headerName( i ) );
-    Serial.print( ": " );
-    Serial.println( webServer->header( i ) );
-  }
-
   if( !webRequestIsAuthenticated() ) {
     webRenderLoginPage();
     return;
