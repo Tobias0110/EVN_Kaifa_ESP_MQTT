@@ -3959,11 +3959,11 @@ WebPageTemplate htmlSettingsPageTemplate() {
   static const WebPageTemplatePart parts[] = { F( R"html(<div class="topbar">
       <form action="/" method="post">
         <input type="text" name="form" value="logout" hidden />
-        <button type="submot">Logout</button>
+        <button type="submit">Logout</button>
       </form>
       <form action="/" method="post">
         <input type="text" name="form" value="restart" hidden />
-        <button type="submot">Restart</button>
+        <button type="submit">Restart</button>
       </form>
     </div>
     <div class="message">)html" ), { SettingsField::NumberOfFields, WebPageTemplateArgs::SettingsPageMessage }, F( R"html(</div>
