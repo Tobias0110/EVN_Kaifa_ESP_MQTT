@@ -3872,14 +3872,14 @@ WebPageTemplate htmlBasePageTemplate() {
         align-items: center;
         background: #bfccdf;
       }
-      .block, .buttons, .message {
+      .block, .topbar, .message {
         background: #f1f1f1;
         padding: 2rem;
         margin: 2rem;
         border-radius: 1rem;
         box-shadow: 4px 4px 7px 1px #4e4e4e73;
       }
-      .buttons {
+      .topbar {
         display: flex;
         flex-direction: row;
         gap: 1rem;
@@ -3896,7 +3896,7 @@ WebPageTemplate htmlBasePageTemplate() {
         max-width: 20rem;
         grid-gap: 1rem;
       }
-      button {
+      .block .buttons {
         grid-column: 2;
         display: flex;
         flex-direction: row;
@@ -3946,7 +3946,10 @@ WebPageTemplate htmlSettingsPageTemplate() {
         <div><input id="wifi-password-field" type="password" name="password" required maxlength="64" value=")html" ), SettingsField::WifiPassword, F( R"html(" /></div>
         <label for="wifi-repeated-password-field">Repeat Password:</label>
         <div><input id="wifi-repeated-password-field" type="password" name="repeated-password" required maxlength="64" value=""/></div>
-        <button type="submit">Save</button>
+        <div class="buttons">
+          <button type="reset">Reset</button>
+          <button type="submit">Save</button>
+        </div>
       </form>
     </div>
     <div class="block">
@@ -3973,7 +3976,10 @@ WebPageTemplate htmlSettingsPageTemplate() {
         <div><input id="mqtt-topic-field" type="radio" name="mode" value="1" )html" ), { SettingsField::MqttMessageMode, MqttMessageMode::Topic }, F( R"html(/></div>
         <label for="mqtt-json-field">Send JSON:</label>
         <div><input id="mqtt-json-field" type="radio" name="mode" value="2" )html" ), { SettingsField::MqttMessageMode, MqttMessageMode::Json }, F( R"html(/></div>
-        <button type="submit">Save</button>
+        <div class="buttons">
+          <button type="reset">Reset</button>
+          <button type="submit">Save</button>
+        </div>
       </form>
     </div>
     <div class="block">
@@ -3982,7 +3988,10 @@ WebPageTemplate htmlSettingsPageTemplate() {
         <input type="text" name="form" value="dslmcosem" hidden />
         <label for="dslmcosem-key-field">Decryption Key:</label>
         <div><input id="dslmcosem-key-field" class="hex" type="text" name="key" required pattern="[0-9a-fA-F]{32}" maxlength="32" value=")html" ), SettingsField::DslmCosemDecryptionKey, F( R"html(" /></div>
-        <button type="submit">Save</button>
+        <div class="buttons">
+          <button type="reset">Reset</button>
+          <button type="submit">Save</button>
+        </div>
       </form>
     </div>)html" ) };
   return { parts };
