@@ -433,6 +433,11 @@ private:
   T& serial;
 };
 
+/**
+* Mock a bunch of different classes, functions and globals from the Arduino Libraries,
+* to make the same code compile on a Desktop machine. There compilation is way faster
+* and a real debugger is available, wich improves developer (my) happiness.
+**/
 #ifndef ARDUINO
 #define SERIAL_8N1 0x00
 #define SERIAL_8E1 0x01
@@ -454,13 +459,17 @@ public:
   String( const String& ) = default;
   String( String&& s ) : data{ std::move( s.data ) } {}
   String( std::string s ) : data{ std::move( s ) } {}
+
   bool isEmpty() const { return data.size() == 0; }
+  
   bool equalsIgnoreCase( const String& s ) const {
     return std::equal( data.begin(), data.end(), s.data.begin(), s.data.end(), []( char a, char b ) {
       return tolower( a ) == tolower( b );
     } );
   }
+  
   bool equals( const String& s ) const { return data == s.data; }
+  
   i32 indexOf( const char* s, u32 start = 0 ) const {
     auto x = data.find( s, start );
     return x == std::string::npos ? -1 : x;
@@ -469,13 +478,18 @@ public:
     auto x = data.find( s, start );
     return x == std::string::npos ? -1 : x;
   }
+  
   std::string& str() { return data; }
   const std::string& str() const { return data; }
   const char* c_str() const { return data.c_str(); }
+  
   u32 length() const { return data.length(); }
+  
   char& operator[]( u32 idx ) { return data[idx]; }
   const char& operator[]( u32 idx ) const { return data[idx]; }
+  
   char* begin() { return (char*)data.data(); }
+
 private:
   std::string data;
 };
@@ -507,6 +521,13 @@ u32 millis() {
 #endif
 #if DEBUG_PRINTING
 
+
+/**
+* Define globals for debug printing and assertions. When mocking the system on a desktop
+* computer debug printing and assertions are always active. Depending on 'DEBUG_PRINTING'
+* constant assertions and the debug printing stream are either turned on or completely
+* removed.
+**/
 #ifdef ARDUINO
 
 SerialStream<decltype(Serial)> debugSerialStream{ Serial };
@@ -3197,9 +3218,8 @@ private:
 
 
 /**
-* Mock a bunch of different classes, functions and globals from the Arduino Libraries,
-* to make the same code compile on a Desktop machine. There compilation is way faster
-* and a real debugger is available, wich improves developer (my) happiness.
+* More (most of the) code for mocking the system on a dektop computer. This section
+* also has the main entry point that calls 'setup' and 'loop'.
 **/
 #ifndef ARDUINO
 
