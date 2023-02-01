@@ -3683,6 +3683,13 @@ private:
   RequestHandlerFunction notFoundHandler{ nullptr };
 };
 
+class DummyESP {
+public:
+  void restart() {
+    debugOut << "[!] Restarting the ESP8266 system!" << debugEndl;
+  }
+};
+
 void delay( u32 ) {}
 void pinMode( u32, u32 ) {}
 void digitalWrite( u32, u32 ) {}
@@ -3740,6 +3747,7 @@ namespace BearSSL {
 }
 
 DummyEEPROM EEPROM{ eepromInitData, true };
+DummyESP ESP;
 
 DummySerial Serial{ NoStl::move( serialDataFrame.value() ) };
 DummyWifi WiFi;
@@ -3882,6 +3890,7 @@ WebPageTemplate htmlBasePageTemplate() {
         margin: 2rem;
         border-radius: 1rem;
         box-shadow: 4px 4px 7px 1px #4e4e4e73;
+        min-width: 16vw;
       }
       .topbar {
         display: flex;
@@ -3938,11 +3947,23 @@ WebPageTemplate htmlLoginPageTemplate() {
   return { parts };
 }
 
+WebPageTemplate htmlRestartPageTemplate() {
+  static const WebPageTemplatePart parts[] = { F( R"html(<div class="block">
+      <h1>Restarting</h1>
+      <p>This takes a short while. Reload the page in a few moments.</p>
+    </div>)html" ) };
+  return { parts };
+}
+
 WebPageTemplate htmlSettingsPageTemplate() {
   static const WebPageTemplatePart parts[] = { F( R"html(<div class="topbar">
       <form action="/" method="post">
         <input type="text" name="form" value="logout" hidden />
         <button type="submot">Logout</button>
+      </form>
+      <form action="/" method="post">
+        <input type="text" name="form" value="restart" hidden />
+        <button type="submot">Restart</button>
       </form>
     </div>
     <div class="message">)html" ), { SettingsField::NumberOfFields, WebPageTemplateArgs::SettingsPageMessage }, F( R"html(</div>
@@ -4066,6 +4087,17 @@ void webRenderLoginPage() {
   } );
 }
 
+void webRenderRestartPage() {
+  WebPageRendererType renderer{ *webServer };
+  renderer.render( htmlBasePageTemplate(), []( WebPageRendererType& renderer, BufferPrinter& printer, const WebPageTemplatePart& part ) {
+    if( part == WebPageTemplatePart::TemplateHook ) {
+      assert( part.asArgument().first == 0 );
+      renderer.renderRecursive( htmlRestartPageTemplate() );
+      return;
+    }
+  } );
+}
+
 void webRenderSettingsPage( EEPROMHandleType eepromHandle, const char* message = nullptr ) {
   // Do not call Settings.begin as this would start the checksum check. But we
   // only load the lower part (no der files) into memory right now, which would
@@ -4140,6 +4172,18 @@ void webLoginHandler() {
 void webLogoutHandler() {
   webServer->sendHeader( "Set-Cookie", WebAuthCookie::deleteCookieHeader() );
   webRenderLoginPage();
+}
+
+void webRestartHandler() {
+  if( !webRequestIsAuthenticated() ) {
+    webRenderLoginPage();
+    return;
+  }
+  
+  webRenderRestartPage();
+  debugOut << "Restarting device!\r\n";
+  delay(2000);
+  ESP.restart();
 }
 
 void webSettingsHandlerImpl( const SettingsField::ValidationPair* pairs, u32 count, const char* msg, EEPROMHandleType eepromHandle ) {
@@ -4393,6 +4437,9 @@ void initWebServer() {
       return;
     } else if( formType.equalsIgnoreCase( "logout" ) ) {
       webLogoutHandler();
+      return;
+    } else if( formType.equalsIgnoreCase( "restart" ) ) {
+      webRestartHandler();
       return;
     } else if( formType.equalsIgnoreCase( "wifi" ) ) {
       webWifiSettingsHandler();
