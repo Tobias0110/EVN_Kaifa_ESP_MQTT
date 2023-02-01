@@ -3009,6 +3009,10 @@ public:
     printer.print( ";HttpOnly;Secure;SameSite=Strict;Max-Age=1200" );
   }
 
+  static const char* deleteCookieHeader() {
+    return "auth=;HttpOnly;Secure;SameSite=Strict;Max-Age=0";
+  }
+
 private:
   WebAuthCookie() = default;
 
@@ -3935,8 +3939,14 @@ WebPageTemplate htmlLoginPageTemplate() {
 }
 
 WebPageTemplate htmlSettingsPageTemplate() {
-  static const WebPageTemplatePart parts[] = { F( R"html(<div class="block">
+  static const WebPageTemplatePart parts[] = { F( R"html(<div class="topbar">
+      <form action="/" method="post">
+        <input type="text" name="form" value="logout" hidden />
+        <button type="submot">Logout</button>
+      </form>
+    </div>
     <div class="message">)html" ), { SettingsField::NumberOfFields, WebPageTemplateArgs::SettingsPageMessage }, F( R"html(</div>
+    <div class="block">
       <h2>Wifi</h2>
       <form action="/" method="post">
         <input type="text" name="form" value="wifi" hidden />
@@ -4125,6 +4135,11 @@ void webLoginHandler() {
   webServer->sendHeader( "Set-Cookie", printer.cString() );
 
   webRenderSettingsPage( NoStl::move( eepromHandle ), "Hello, welcome back." );
+}
+
+void webLogoutHandler() {
+  webServer->sendHeader( "Set-Cookie", WebAuthCookie::deleteCookieHeader() );
+  webRenderLoginPage();
 }
 
 void webSettingsHandlerImpl( const SettingsField::ValidationPair* pairs, u32 count, const char* msg, EEPROMHandleType eepromHandle ) {
@@ -4375,6 +4390,9 @@ void initWebServer() {
     auto& formType = webServer->arg( "form" );
     if( formType.equalsIgnoreCase( "login" ) ) {
       webLoginHandler();
+      return;
+    } else if( formType.equalsIgnoreCase( "logout" ) ) {
+      webLogoutHandler();
       return;
     } else if( formType.equalsIgnoreCase( "wifi" ) ) {
       webWifiSettingsHandler();
