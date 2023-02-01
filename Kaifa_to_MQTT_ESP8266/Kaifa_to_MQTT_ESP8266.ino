@@ -4190,6 +4190,16 @@ void webMqttSettingsHandler() {
     }, "Updated mqtt settings. Restart needed.", NoStl::move( eepromHandle ) );
 }
 
+void webDslmCosemSettingsHandler() {
+  auto& key = webServer->arg( "key" );
+  // Load everything, as all data is required to compute and update the checksum
+  EEPROMHandleType eepromHandle{ EEPROM, SettingsField::requiredStorage() + 4 };
+
+  webSettingsHandler( {
+    { SettingsField::DslmCosemDecryptionKey, key },
+    }, "Updated dslm cosem settings. Restart needed.", NoStl::move( eepromHandle ) );
+}
+
 void flushSerial() {
   while( Serial.available() ) {
     Serial.read();
@@ -4362,6 +4372,9 @@ void initWebServer() {
       return;
     } else if( formType.equalsIgnoreCase( "mqtt" ) ) {
       webMqttSettingsHandler();
+      return;
+    } else if( formType.equalsIgnoreCase( "dslmcosem" ) ) {
+      webDslmCosemSettingsHandler();
       return;
     }
 
