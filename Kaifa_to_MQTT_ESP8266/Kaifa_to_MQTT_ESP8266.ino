@@ -3961,7 +3961,7 @@ WebPageTemplate htmlSettingsPageTemplate() {
         <input type="text" name="form" value="logout" hidden />
         <button type="submit">Logout</button>
       </form>
-      <form action="/" method="post">
+      <form action="/" method="post" onsubmit="return confirm('Do you want to restart? Your configuration will be reloaded and changes will be permanent.')">
         <input type="text" name="form" value="restart" hidden />
         <button type="submit">Restart</button>
       </form>
