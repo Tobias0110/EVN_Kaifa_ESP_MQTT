@@ -4179,10 +4179,10 @@ void webRestartHandler() {
     webRenderLoginPage();
     return;
   }
-  
+
   webRenderRestartPage();
   debugOut << "Restarting device!\r\n";
-  delay(2000);
+  delay( 2000 );
   ESP.restart();
 }
 
@@ -4192,7 +4192,7 @@ void webSettingsHandlerImpl( const SettingsField::ValidationPair* pairs, u32 cou
     return;
   }
 
-  auto validationError = SettingsField::validateStrings(pairs, count);
+  auto validationError = SettingsField::validateStrings( pairs, count );
   if( validationError.isError() ) {
     debugOut << "Caught validation error in ::webSettingsHandler: " << validationError.error().message() << debugEndl;
     webRenderSettingsPage( NoStl::move( eepromHandle ), validationError.error().message() );
@@ -4247,7 +4247,7 @@ void webMqttSettingsHandler() {
   EEPROMHandleType eepromHandle{ EEPROM, SettingsField::requiredStorage() + 4 };
 
   webSettingsHandler( {
-    { SettingsField::MqttBrokerAddress, address},
+    { SettingsField::MqttBrokerAddress, address },
     { SettingsField::MqttBrokerPort, port },
     { SettingsField::MqttCertificateFingerprint, fingerprint },
     { SettingsField::MqttBrokerUser, user },
