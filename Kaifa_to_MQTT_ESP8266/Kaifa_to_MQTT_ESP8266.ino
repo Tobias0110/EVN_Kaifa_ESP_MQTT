@@ -4332,14 +4332,14 @@ void connectToWifi() {
   const auto password = Settings.getCStringBuffer( SettingsField::WifiPassword );
   WiFi.begin( ssid.charBegin(), password.charBegin() );
 
-  Serial.print( "Connecting to WiFi" );
+  SerialStream serialStream{ Serial };
+  serialStream << "Connecting to WiFi";
   while( WiFi.status() != WL_CONNECTED ) {
     delay( 500 );
-    Serial.print( "." );
+    serialStream << ".";
   }
-  Serial.print( "\r\n" );
 
-  debugOut << "Wifi connected to '" << ssid.charBegin() << "' " << " with IP '" << WiFi.localIP() << "'\r\n";
+  serialStream << "\r\nWifi connected to '" << ssid.charBegin() << "' " << " with IP '" << WiFi.localIP() << "'\r\n";
 }
 
 void initMqttWifiClient() {
