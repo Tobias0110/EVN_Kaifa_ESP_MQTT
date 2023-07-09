@@ -67,7 +67,7 @@
 
 #include <ESP8266WiFi.h>
 #include <WiFiClientSecure.h>
-#include <ESP8266WebServerSecure.h>
+#include <ESP8266WebServer.h>
 #include <PubSubClient.h>
 #include <EEPROM.h>
 #include <Arduino.h>
@@ -184,7 +184,6 @@ class SerialBufferReader;
 class BufferPrinter;
 class MqttSender;
 class SettingsField;
-class DerFile;
 template<typename>
 class EEPROMSettings;
 template<typename>
@@ -208,7 +207,6 @@ template<typename>
 class MqttTopicSender;
 template<typename>
 class MqttJsonSender;
-class WebAuthCookie;
 template<typename>
 class WebServerPrinter;
 class WebPageTemplatePart;
@@ -1520,9 +1518,6 @@ public:
     MqttBrokerPath,
     MqttMessageMode,
     DslmCosemDecryptionKey,
-    WebPagePassword,
-    WebServerSSLCertificate,
-    WebServerSSLKey,
 
     NumberOfFields
   };
@@ -1553,8 +1548,7 @@ public:
   const char* name() const { return fields[type].name; }
   const char* defaultValue() const { return fields[type].defaultValue; }
   Type enumType() const { return type; }
-  bool isDerFile() const { return type == WebServerSSLCertificate || type == WebServerSSLKey; }
-  bool canAutoGenerateValue() const { return type == WebPagePassword; }
+  bool canAutoGenerateValue() const { return false; }
 
   bool isSecure() const {
     switch( type ) {
@@ -1562,9 +1556,6 @@ public:
       case MqttBrokerPassword:
       case MqttCertificateFingerprint:
       case DslmCosemDecryptionKey:
-      case WebServerSSLCertificate:
-      case WebServerSSLKey:
-      case WebPagePassword:
         return true;
       default:
         return false;
@@ -1728,26 +1719,10 @@ public:
     }
   }
 
-  enum SpaceCalculationMode : bool {
-    AllButDerFiles = false,
-    OnlyDerFiles = true
-  };
-
   static u32 requiredStorage() {
     u32 len = 0;
     for( u32 i = 0; i != NumberOfFields; i++ ) {
       len += fields[i].maxLength;
-    }
-    return len;
-  }
-
-  static u32 requiredStorageFor( SpaceCalculationMode mode ) {
-    u32 len = 0;
-    for( u32 i = 0; i != NumberOfFields; i++ ) {
-      SettingsField field{ (Type)i };
-      if( field.isDerFile() == mode ) {
-        len += field.maxLength();
-      }
     }
     return len;
   }
@@ -1770,33 +1745,6 @@ const SettingsField::FieldInfo SettingsField::fields[SettingsField::NumberOfFiel
   { MqttBrokerPath, "mqtt broker path", nullptr, 101 },
   { MqttMessageMode, "mqtt message mode (0 - raw, 1 - topics, 2 - json)", "2", 2 },
   { DslmCosemDecryptionKey, "dslm/cosem decryption key (meter key)", nullptr, 33 },
-  { WebPagePassword, "webpage password", nullptr, 21 },
-  { WebServerSSLCertificate, "web server ssl certificate", "[default]", 1000 },
-  { WebServerSSLKey, "web server ssl private key", "[default]", 1300 },
-};
-
-class DerFile {
-public:
-  DerFile( Buffer&& b ) : buffer{ NoStl::move( b ) } {}
-
-  operator bool() const {
-    return buffer.length();
-  }
-
-  const char* getPrintValue() const {
-    return buffer.length() ? "<custom bytes>" : "[default]";
-  }
-
-  const u8* data() const {
-    return buffer.begin();
-  }
-
-  u32 length() const {
-    return buffer.length();
-  }
-
-private:
-  Buffer buffer;
 };
 
 template<typename T>
@@ -1835,15 +1783,6 @@ public:
     return { ptr, len };
   }
 
-  DerFile getDerFile( SettingsField field ) {
-    assert( field.isDerFile() );
-    assert( available() );
-    auto offset = field.calcOffset();
-    auto ptr = (u8*)eeprom.getConstDataPtr() + offset + 2;
-    u16 len = (eeprom[offset + 1] << 8) | eeprom[offset];
-    return { Buffer{ ptr, len } };
-  }
-
   void copyHexBytes( SettingsField field, Buffer& buffer ) {
     assert( buffer.length() >= (field.maxLength() - 1) / 2 ); // Ignore the null termination byte and convert nibble count to byte count
 
@@ -1861,10 +1800,6 @@ public:
 
   void set( SettingsField field, const Buffer& buffer ) {
     assert( available() );
-    if( field.isDerFile() ) {
-      setDerFile( field, buffer );
-      return;
-    }
     auto offset = field.calcOffset();
     auto maxLength = field.maxLength() < buffer.length() ? field.maxLength() : buffer.length();
 
@@ -1872,32 +1807,11 @@ public:
     eeprom[offset + field.maxLength() - 1] = '\0';
   }
 
-  void setDerFile( SettingsField field, const Buffer& buffer ) {
-    assert( available() );
-    assert( field.isDerFile() );
-
-    // Store the length in the first two bytes (Little Endian)
-    auto length = buffer.length();
-    assert( length <= (field.maxLength() - 2) );
-
-    auto offset = field.calcOffset();
-    eeprom[offset + 1] = length >> 8;
-    eeprom[offset] = length & 0xff;
-
-    // Copy the contents of the buffer after the length bytes
-    auto ptr = eeprom.getDataPtr() + offset + 2;
-    memcpy( ptr, buffer.begin(), length );
-  }
-
   template<typename U>
   void printConfiguration( U& stream ) {
     assert( available() );
 
     SettingsField::forEach( [ & ]( SettingsField field ) {
-      if( field.isDerFile() ) {
-        auto derFile = getDerFile( field );
-        stream << "* " << field.name() << ": " << derFile.getPrintValue() << "\r\n";
-      }
       // Hide password fields
       if( !field.isSecure() ) {
         auto buffer = getCStringBuffer( field );
@@ -2951,138 +2865,6 @@ private:
   bool hasAtLeastOneField{ false };
 };
 
-class WebAuthCookie {
-private:
-  constexpr static u32 maxAgeMillis = 20 * 60 * 1000; // 20min
-  constexpr static char constantString[] = "MQTTGateway";
-  static_assert(sizeof( constantString ) == 12);
-
-public:
-  static WebAuthCookie create() {
-    WebAuthCookie cookie;
-    ESP8266TrueRandom.memfill( (char*)cookie.storage().begin(), 16 );
-
-    u32 time = millis();
-    auto tmBuf = cookie.timeStamp();
-    tmBuf[0] = time & 0xFF;
-    tmBuf[1] = (time >> 8) & 0xFF;
-    tmBuf[2] = (time >> 16) & 0xFF;
-    tmBuf[3] = (time >> 24) & 0xFF;
-
-    strncpy( (char*)cookie.constant().begin(), constantString, 12 );
-
-    // Encrypt in place
-    auto gcm = GCM<AES128>{};
-    initGCM( gcm );
-
-    auto plainText = cookie.storage();
-    gcm.encrypt( plainText.begin(), plainText.begin(), plainText.length() );
-    gcm.computeTag( cookie.tag().begin(), cookie.tag().length() );
-
-    return cookie;
-  }
-
-  static ErrorOr<WebAuthCookie> fromBase64( const Buffer& readBuffer ) {
-    WebAuthCookie cookie;
-    BufferReader reader{ readBuffer };
-    reader.skipWhiteSpace();
-
-    TRYGET( readByteCount, cookie.buffer.parseBase64( reader ) );
-
-    reader.skipWhiteSpace();
-    if( reader.hasNext() || readByteCount != 48 ) {
-      return Error{ "Invalid authentication cookie length" };
-    }
-
-    return cookie;
-  }
-
-  const Buffer& data() const {
-    return buffer;
-  }
-
-  ErrorOr<void> verify() {
-    // Decrypt in place
-    auto gcm = GCM<AES128>{};
-    initGCM( gcm );
-    auto cipherText = storage();
-    gcm.decrypt( cipherText.begin(), cipherText.begin(), cipherText.length() );
-    if( !gcm.checkTag( tag().begin(), tag().length() ) ) {
-      return Error{ "Tag did not match" };
-    }
-
-    if( strncmp( constant().charBegin(), constantString, 12 ) ) {
-      return Error{ "Invalid constant" };
-    }
-
-    u32 time = 0;
-    auto tmBuf = timeStamp();
-    time |= tmBuf[0];
-    time |= tmBuf[1] << 8;
-    time |= tmBuf[2] << 16;
-    time |= tmBuf[3] << 24;
-
-    u32 currentTime = millis();
-    if( currentTime < time || (currentTime - time) > maxAgeMillis ) {
-      return Error{ "Too old" };
-    }
-
-    return {};
-  }
-
-  static void initEncryption() {
-    ESP8266TrueRandom.memfill( (char*)gcmKey.begin(), gcmKey.length() );
-    ESP8266TrueRandom.memfill( (char*)gcmInitVector.begin(), gcmInitVector.length() );
-  }
-
-  void printCookieHeader( BufferPrinter& printer ) const {
-    printer.print( "auth=" );
-    data().printBase64( printer );
-    printer.print( ";HttpOnly;Secure;SameSite=Strict;Max-Age=1200" );
-  }
-
-  static const char* deleteCookieHeader() {
-    return "auth=;HttpOnly;Secure;SameSite=Strict;Max-Age=0";
-  }
-
-private:
-  WebAuthCookie() = default;
-
-  static LocalBuffer<16> gcmKey;
-  static LocalBuffer<12> gcmInitVector;
-
-  static void initGCM( GCM<AES128>& gcm ) {
-    gcm.clear();
-    gcm.setIV( gcmInitVector.begin(), gcmInitVector.length() );
-    gcm.setKey( gcmKey.begin(), gcmKey.length() );
-  }
-
-  Buffer timeStamp() {
-    return buffer.slice( 16, 20 );
-  }
-
-  Buffer constant() {
-    return buffer.slice( 20, 32 );
-  }
-
-  Buffer storage() {
-    return buffer.slice( 0, 32 );
-  }
-
-  Buffer tag() {
-    return buffer.slice( 32, 48 );
-  }
-
-  // Encrypted +  16 Byte random base value (cycled on each startup)
-  //           |   4 Byte time stamp
-  //           +  12 Byte constant value
-  // Plain        16 Byte tag
-  LocalBuffer<16 + 4 + 12 + 16> buffer;
-};
-
-LocalBuffer<16> WebAuthCookie::gcmKey;
-LocalBuffer<12> WebAuthCookie::gcmInitVector;
-
 template<typename T>
 class WebServerPrinter final : public BufferPrinter {
 public:
@@ -3512,32 +3294,11 @@ private:
   u32 statusCounter{ 0 };
 };
 
-class DummyServerSessions {};
-
-class DummyX509List {
-public:
-  DummyX509List( const u8*, u32 ) {}
-  DummyX509List( const char* ) {}
-};
-
-class DummyPrivateKey {
-public:
-  DummyPrivateKey( const u8*, u32 ) {}
-  DummyPrivateKey( const char* ) {}
-};
-
-class DummyWiFiServerSecure {
-public:
-  void setRSACert( DummyX509List*, DummyPrivateKey* ) {
-    std::cout << "[!] WebServer: Set certificate and private key" << std::endl;
-  }
-
-  void setCache( DummyServerSessions* ) {}
-};
+class DummyWiFiServer {};
 
 enum HttpMethod { HTTP_GET, HTTP_POST };
 
-class DummyWebServerSecure {
+class DummyWebServer {
 private:
   auto getHeaderIteratorByIndex( u32 idx ) const {
     assert( idx < headers() );
@@ -3550,13 +3311,13 @@ private:
   }
 
 public:
-  DummyWebServerSecure( u16 port ) {}
+  DummyWebServer( u16 port ) {}
 
   void begin() {
     std::cout << "[!] WebServer: Begin" << std::endl;
   }
 
-  DummyWiFiServerSecure getServer() {
+  DummyWiFiServer getServer() {
     return {};
   }
 
@@ -3755,19 +3516,10 @@ const char* eepromInitData[] = {
   "a/base/path",       // MqttBrokerPath
   "2",                 // MqttMessageMode
   "36C66639E48A8CA4D6BC8B282A793BBB", // DslmCosemDecryptionKey (example provided by EVN)
-  "a-secure-password", // WebPagePassword
-  "\0\0\0",            // WebServerSSLCertificate
-  "\0\0\0",            // WebServerSSLKey
 };
 
 using WiFiClient = DummyWiFiClient;
 using WiFiClientSecure = DummyWiFiClientSecure;
-
-namespace BearSSL {
-  using ESP8266WebServerSecure = DummyWebServerSecure;
-  using X509List = DummyX509List;
-  using PrivateKey = DummyPrivateKey;
-}
 
 DummyEEPROM EEPROM{ eepromInitData, true };
 DummyESP ESP;
@@ -3777,10 +3529,7 @@ DummyWifi WiFi;
 NoStl::UniquePtr<WiFiClient> wifiClient;
 DummyPubSubClient pubsubClient;
 
-DummyServerSessions serverSessionsCache;
-NoStl::UniquePtr<DummyX509List> webServerCertificate;
-NoStl::UniquePtr<DummyPrivateKey> webServerPrivateKey;
-NoStl::UniquePtr<DummyWebServerSecure> webServer;
+DummyWebServer webServer{ 80 };
 
 void setup();
 void loop();
@@ -3794,21 +3543,21 @@ int main() {
 
   loop();
 
-  webServer->doRequest( "/", HTTP_GET, "" );
-  webServer->doRequest( "/", HTTP_POST, "", { { "form", "login" }, { "client", "client-id" }, { "password", "a-secure-password" } } );
+  webServer.doRequest( "/", HTTP_GET, "" );
+  webServer.doRequest( "/", HTTP_POST, "", { { "form", "login" }, { "client", "client-id" }, { "password", "a-secure-password" } } );
 
-  auto cookieString = webServer->responseHeader( "Set-Cookie" );
+  auto cookieString = webServer.responseHeader( "Set-Cookie" );
   assert( cookieString.rfind( "auth=", 0 ) == 0 );
   auto endPos = cookieString.find( ';' );
   auto cookie = cookieString.substr( 0, endPos );
 
-  webServer->doRequest( "/", HTTP_GET, "", {}, { { "Cookie", cookie } } );
+  webServer.doRequest( "/", HTTP_GET, "", {}, { { "Cookie", cookie } } );
 
   //webServer->doRequest( "/", HTTP_POST, "", {
   //  { "form", "wifi" }, { "ssid", "newSSID" }, { "password", "newPassword" }, { "repeated-password", "newPassword" }
   //  }, { { "Cookie", cookie } } );
 
-  webServer->doRequest( "/", HTTP_POST, "", {
+  webServer.doRequest( "/", HTTP_POST, "", {
     { "form", "mqtt" }, { "address", "2.2.2.2" }, { "port", "8883" }, { "fingerprint", "[insecure]" }, { "user", "coolUser" }, { "password", "coolPassword" },
     { "client-id", "coolId" }, { "path", "/a/cool/path" }, { "mode", "1" }
     }, { { "Cookie", cookie } } );
@@ -3821,67 +3570,9 @@ int main() {
 NoStl::UniquePtr<WiFiClient> wifiClient;
 PubSubClient pubsubClient{};
 
-static constexpr auto serverSessionsStorageCount = 3;
-BearSSL::ServerSession serverSessionsStorage[serverSessionsStorageCount];
-BearSSL::ServerSessions serverSessionsCache{ serverSessionsStorage, serverSessionsStorageCount };
-
-NoStl::UniquePtr<BearSSL::X509List> webServerCertificate;
-NoStl::UniquePtr<BearSSL::PrivateKey> webServerPrivateKey;
-NoStl::UniquePtr<BearSSL::ESP8266WebServerSecure> webServer;
+ESP8266WebServer webServer{ 80 };
 
 #endif
-
-static const char webServerDefaultSSLPrivateKeyData[] PROGMEM =
-"-----BEGIN PRIVATE KEY-----\n"
-"MIIEwAIBADANBgkqhkiG9w0BAQEFAASCBKowggSmAgEAAoIBAQDLvMyy8rvWwMmr\n"
-"GrcronFVQ7ReXTAhzAjdlCyo2HQ39WDwRAJb26clRRL/rakw8EpGQS0we4pamhBB\n"
-"HmR4Mb2lT9Q64ZGMu8tEOYxBr1uYM1PmkEfwFq6w6x2C/oeY+arMdSOa/KcnYuUn\n"
-"JyboYqMhCECWPJzCQJMX3iayguBSa2bcVGqxaXevdLAeLNdavwh5F0AvBfGY0agU\n"
-"6q8RUlHKRLMqBA7n0ZGnpAC1gWFuzQs9tgMu0zDdOeJ2zbOVPXDBizYgsvBL9GjK\n"
-"MRoWJI2nulHLE8F72b0PaGscFJ9XquOMVoo4ldHhOv/3VxdovkahZSLtwA6EI4RL\n"
-"F8SepC4ZAgMBAAECggEBAJZd3LJCBjKEjRL0n7XbqUulsYxnuKto/C4VOzTOtE/M\n"
-"kWQivZ7wKZePOGttz05oOllJp0F+HGmsBU0aUkqHY5GLrnZanuLAg0/yLTsZYj+d\n"
-"ulGTsRRYmUvH6zsQAiH8Onu2BLZRvEiMa9YOxl+C1ST/AzQevg98O1PFSMg9YbRR\n"
-"cTcOVmfufodZaKWCYRjNhhuuUxP57HB/VWnKvvErw2hAwOa3kTrOK/qMcH7xP7RA\n"
-"PRWJqot3FDw7tlzMXptvJHuBamLQ3lErUvlz3xxxcZ6z2AMBtZCWay88v/Lm5Dqd\n"
-"o4o9e9NDmaDWWN8zErFdsiTAEfQXhewyGtD/BsFXo9ECgYEA5VoSkhVJ36/bl8Nq\n"
-"UDX8pHF0YyVhkFh2XXuaLJfJ2Zud7x97VtJguIHqXzwchdi1wnjXfPA/4/2ojj+w\n"
-"50o9qwCCn5aRSAIGofR/BZQ4s/Sd5j+bsiyzhIYZOwhG3CcCs2N9rQci7J36zKa+\n"
-"Yq67bfDzLiPIwA1iGkl/Y7PuWx0CgYEA42jYI5LPEwQnw4OLfIlCE4hre4Ir6Wm/\n"
-"DY7hwHqA0YsODQugjVlVL0lif2ig00eMYzexy7nAzYEOo8makKVYjUBphf+zcqna\n"
-"yTJKkZ++Dt5pudsHjmkWsYR6PLksX4QqQQsylaoU85/navgq0hPJyKJgS9S32lbk\n"
-"xjFo6lq0si0CgYEAvGkIRHW0oEvJa50fIxGWoEiLwj8dLQVfB2DYwLVZHqjWT3Bf\n"
-"VG2zAx/Gt8Gb9OCYQFAhRgPfmJ3y8BimbPryOh5LMGryomL3q+g8yQqAomTbqiCq\n"
-"+O3782xuIa6k94ocj921ioUITbViKOj6EftVAfYk78x5yDu2Ub37Jp7TuokCgYEA\n"
-"p7WOkM2YQWHzIVFF8VYYkOcuvStGzyDZcVpKSvUNQ3vVpPFKOnQDSphIN8YltSsy\n"
-"8YkFakVXVzcyYMAxaTNHlwRFzjjBUnLJk0+vhq3UMIr+Vb6eV/xQbCJTM60seFS0\n"
-"BLwJVi7UvMbUmCLlEYDec0Ss17/Mxw0GMtQFl6/FSxECgYEAw6nRF6arWW/q1uii\n"
-"3oHsjBw0vl7OuH4ykl8EaOf4T1DkG3l0zXwkA7i1wemrEhPO1/1kDKlW27LEuYXf\n"
-"84oVNgfxt/zeDDSoD1B6xCxdEln68h+A9UVRIx1VfQG1lJti5ZePkvrHHoR/rXCB\n"
-"GWMDJKW1Y0evqF8zvuyZ0wvcBjs=\n"
-"-----END PRIVATE KEY-----\n";
-
-static const char webServerDefaultCertificateData[] PROGMEM =
-"-----BEGIN CERTIFICATE-----\n"
-"MIIDQzCCAiugAwIBAgIJAJxmg5ahlCD/MA0GCSqGSIb3DQEBCwUAMDcxCzAJBgNV\n"
-"BAYTAkFUMRYwFAYDVQQIDA1Mb3dlciBBdXN0cmlhMRAwDgYDVQQKDAdlZ2ltb3Rv\n"
-"MCAXDTIyMTIzMDIyMTAzMFoYDzIxMjEwNzI0MjIxMDMwWjA3MQswCQYDVQQGEwJB\n"
-"VDEWMBQGA1UECAwNTG93ZXIgQXVzdHJpYTEQMA4GA1UECgwHZWdpbW90bzCCASIw\n"
-"DQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAMu8zLLyu9bAyasatyuicVVDtF5d\n"
-"MCHMCN2ULKjYdDf1YPBEAlvbpyVFEv+tqTDwSkZBLTB7ilqaEEEeZHgxvaVP1Drh\n"
-"kYy7y0Q5jEGvW5gzU+aQR/AWrrDrHYL+h5j5qsx1I5r8pydi5ScnJuhioyEIQJY8\n"
-"nMJAkxfeJrKC4FJrZtxUarFpd690sB4s11q/CHkXQC8F8ZjRqBTqrxFSUcpEsyoE\n"
-"DufRkaekALWBYW7NCz22Ay7TMN054nbNs5U9cMGLNiCy8Ev0aMoxGhYkjae6UcsT\n"
-"wXvZvQ9oaxwUn1eq44xWijiV0eE6//dXF2i+RqFlIu3ADoQjhEsXxJ6kLhkCAwEA\n"
-"AaNQME4wHQYDVR0OBBYEFLJ7xtb3b//khVOHxSWVaDUgcdMVMB8GA1UdIwQYMBaA\n"
-"FLJ7xtb3b//khVOHxSWVaDUgcdMVMAwGA1UdEwQFMAMBAf8wDQYJKoZIhvcNAQEL\n"
-"BQADggEBAIQ6PoQ5nPNfhwM3boqQNJcJ9YT8pg9X9Jefcaj0WdFh2vy2hAzvmjhn\n"
-"tlpSuajxNL3OqrZ521FQknJFg/uc7UiYssRG+RxqU7QOriSQPHMbNZIRE94daYqK\n"
-"KxaKeyn3D9PAzkjmN9YQuTmbKF4ls9NV1vN479KzPMH6IwLydMm6qUybHuBVMGqS\n"
-"OaVVuxm+TJxxbQSQwW2TPbetjqZ0piTeeYoRWMMzVemQMGo1YyyBwy/vsnGKNrvF\n"
-"vDnyEUYJC8cgO5BrM7a7Ay9lupo7BBbaAi25AjKA5RbAoNzS5LYkfglBDPN53k+Q\n"
-"gARMeDpuLXKHiW3OUTkh5LEIfzWJR7I=\n"
-"-----END CERTIFICATE-----\n";
 
 class WebPageTemplateArgs {
 public:
@@ -4060,47 +3751,15 @@ LocalBuffer<45> mqttServerCertFingerprint;
 // a copy of the string it is provided. The lifetime has to be managed by the user (us).
 LocalBuffer<21> mqttServerDomain;
 
-using WebPageRendererType = WebPageRenderer<decltype(*webServer), 256>;
+using WebPageRendererType = WebPageRenderer<decltype(webServer), 256>;
 using EEPROMHandleType = EEPROMHandle<decltype(EEPROM)>;
 
 bool webRequestIsAuthenticated() {
-  // Cut out the auth cookie part, because there could be multiple cookies for some reason
-  auto cookieString = webServer->header( "Cookie" );
-  i32 beginIndex = cookieString.indexOf( "auth=" );
-  if( beginIndex < 0 ) {
-    debugOut << "No auth cookie" << debugEndl;
-    return false;
-  }
-
-  beginIndex += 5; // Skip the "auth="
-
-  i32 endIndex = cookieString.indexOf( ';', beginIndex );
-  if( endIndex < 0 ) {
-    endIndex = cookieString.length();
-  }
-
-  // Create a buffer view into the string and try to read the cookie's base64
-  Buffer readBuffer{ (u8*)cookieString.c_str() + beginIndex, (u32)endIndex - beginIndex };
-  auto cookieOrError = WebAuthCookie::fromBase64( readBuffer );
-  if( cookieOrError.isError() ) {
-    debugOut << "Caught error in ::webRequestIsAuthenticated(): " << cookieOrError.error().message() << debugEndl;
-    return false;
-  }
-
-  // Do the cryptographic verification
-  auto& cookie = cookieOrError.value();
-  auto verifyError = cookie.verify();
-  if( verifyError.isError() ) {
-    debugOut << "Authetication cookie is invalid because: " << verifyError.error().message() << debugEndl;
-    return false;
-  }
-
-  debugOut << "Received authenticated request" << debugEndl;
   return true;
 }
 
 void webRenderLoginPage() {
-  WebPageRendererType renderer{ *webServer };
+  WebPageRendererType renderer{ webServer };
   renderer.render( htmlBasePageTemplate(), []( WebPageRendererType& renderer, BufferPrinter& printer, const WebPageTemplatePart& part ) {
     if( part == WebPageTemplatePart::TemplateHook ) {
       assert( part.asArgument().first == 0 );
@@ -4111,7 +3770,7 @@ void webRenderLoginPage() {
 }
 
 void webRenderRestartPage() {
-  WebPageRendererType renderer{ *webServer };
+  WebPageRendererType renderer{ webServer };
   renderer.render( htmlBasePageTemplate(), []( WebPageRendererType& renderer, BufferPrinter& printer, const WebPageTemplatePart& part ) {
     if( part == WebPageTemplatePart::TemplateHook ) {
       assert( part.asArgument().first == 0 );
@@ -4127,7 +3786,7 @@ void webRenderSettingsPage( EEPROMHandleType eepromHandle, const char* message =
   // cause an out of bounds access, as the checksum is expected to be at the very
   // end of the full block.
 
-  WebPageRendererType renderer{ *webServer };
+  WebPageRendererType renderer{ webServer };
   renderer.render( htmlBasePageTemplate(), [ & ]( WebPageRendererType& renderer, BufferPrinter& printer, const WebPageTemplatePart& part ) {
     if( part == WebPageTemplatePart::TemplateHook ) {
       assert( part.asArgument().first == 0 );
@@ -4165,35 +3824,17 @@ void webRenderRootPage() {
     return;
   }
 
-  webRenderSettingsPage( EEPROMHandleType{ EEPROM, SettingsField::requiredStorageFor( SettingsField::AllButDerFiles ) } );
+  webRenderSettingsPage( EEPROMHandleType{ EEPROM, SettingsField::requiredStorage() } );
 }
 
 void webLoginHandler() {
   // Again, do not call Settings.begin() for reasons mentioned above
-  EEPROMHandleType eepromHandle{ EEPROM, SettingsField::requiredStorageFor( SettingsField::AllButDerFiles ) };
-  auto clientBuffer = Settings.getCStringBuffer( SettingsField::MqttBrokerClientId );
-  auto passwordBuffer = Settings.getCStringBuffer( SettingsField::WebPagePassword );
-
-  auto clientName = webServer->arg( "client" );
-  auto password = webServer->arg( "password" );
-  if( !clientName.equals( clientBuffer.charBegin() ) || !password.equals( passwordBuffer.charBegin() ) ) {
-    webRenderLoginPage();
-    return;
-  }
-
-  // Create authentication cookie and print set-cookie header
-  auto authCookie = WebAuthCookie::create();
-  LocalBuffer<150> printBuffer;
-  BufferPrinter printer{ printBuffer };
-  authCookie.printCookieHeader( printer );
-
-  webServer->sendHeader( "Set-Cookie", printer.cString() );
+  EEPROMHandleType eepromHandle{ EEPROM, SettingsField::requiredStorage() };
 
   webRenderSettingsPage( NoStl::move( eepromHandle ), "Hello, welcome back." );
 }
 
 void webLogoutHandler() {
-  webServer->sendHeader( "Set-Cookie", WebAuthCookie::deleteCookieHeader() );
   webRenderLoginPage();
 }
 
@@ -4236,59 +3877,15 @@ void webSettingsHandler( const SettingsField::ValidationPair( &pairs )[N], const
 }
 
 void webWifiSettingsHandler() {
-  auto& ssid = webServer->arg( "ssid" );
-  auto& password = webServer->arg( "password" );
-  auto& repeatedPassword = webServer->arg( "repeated-password" );
-
-  // Load everything, as all data is required to compute and update the checksum
-  EEPROMHandleType eepromHandle{ EEPROM, SettingsField::requiredStorage() + 4 };
-
-  if( !password.equals( repeatedPassword ) ) {
-    webRenderSettingsPage( NoStl::move( eepromHandle ), "The password fields do not match" );
-    return;
-  }
-
-  debugOut << "Updating wifi settings to '" << ssid << "' and '" << password << "'\r\n";
-
-  webSettingsHandler( {
-    { SettingsField::WifiSSID, ssid },
-    { SettingsField::WifiPassword, password }
-    }, "Updated wifi settings. Restart needed.", NoStl::move( eepromHandle ) );
+  
 }
 
 void webMqttSettingsHandler() {
-  auto& address = webServer->arg( "address" );
-  auto& port = webServer->arg( "port" );
-  auto& fingerprint = webServer->arg( "fingerprint" );
-  auto& user = webServer->arg( "user" );
-  auto& password = webServer->arg( "password" );
-  auto& clientId = webServer->arg( "client-id" );
-  auto& path = webServer->arg( "path" );
-  auto& mode = webServer->arg( "mode" );
-
-  // Load everything, as all data is required to compute and update the checksum
-  EEPROMHandleType eepromHandle{ EEPROM, SettingsField::requiredStorage() + 4 };
-
-  webSettingsHandler( {
-    { SettingsField::MqttBrokerAddress, address },
-    { SettingsField::MqttBrokerPort, port },
-    { SettingsField::MqttCertificateFingerprint, fingerprint },
-    { SettingsField::MqttBrokerUser, user },
-    { SettingsField::MqttBrokerPassword, password },
-    { SettingsField::MqttBrokerClientId, clientId },
-    { SettingsField::MqttBrokerPath, path },
-    { SettingsField::MqttMessageMode, mode }
-    }, "Updated mqtt settings. Restart needed.", NoStl::move( eepromHandle ) );
+  
 }
 
 void webDslmCosemSettingsHandler() {
-  auto& key = webServer->arg( "key" );
-  // Load everything, as all data is required to compute and update the checksum
-  EEPROMHandleType eepromHandle{ EEPROM, SettingsField::requiredStorage() + 4 };
-
-  webSettingsHandler( {
-    { SettingsField::DslmCosemDecryptionKey, key },
-    }, "Updated dslm cosem settings. Restart needed.", NoStl::move( eepromHandle ) );
+ 
 }
 
 void flushSerial() {
@@ -4410,155 +4007,25 @@ void initMqtt() {
 }
 
 void initWebServer() {
-  // Load the certificate and key file on startup
-  if( !webServerPrivateKey || !webServerCertificate ) {
-    // Use custom cert and key if available
-    assert( Settings.available() );
-    auto keyFile = Settings.getDerFile( SettingsField::WebServerSSLKey );
-    auto certFile = Settings.getDerFile( SettingsField::WebServerSSLCertificate );
-    if( keyFile && certFile ) {
-      debugOut << "Webserver uses custom certificate and key" << debugEndl;
-      webServerPrivateKey = NoStl::makeUnique<BearSSL::PrivateKey>( keyFile.data(), keyFile.length() );
-      webServerCertificate = NoStl::makeUnique<BearSSL::X509List>( certFile.data(), certFile.length() );
-    } else {
-      debugOut << "Webserver uses default certificate and key" << debugEndl;
-      webServerPrivateKey = NoStl::makeUnique<BearSSL::PrivateKey>( webServerDefaultSSLPrivateKeyData );
-      webServerCertificate = NoStl::makeUnique<BearSSL::X509List>( webServerDefaultCertificateData );
-    }
+  assert( Settings.available() );
 
-    // Create key and init vector for authentication cookie encryption
-    WebAuthCookie::initEncryption();
-  }
-
-  // Stop and deallocate the current webserver instance
-  if( webServer ) {
-    webServer->stop();
-    webServer->close();
-    webServer.reset();
-  }
-
-  webServer = NoStl::makeUnique<BearSSL::ESP8266WebServerSecure>( 443 );
-  webServer->getServer().setRSACert( webServerCertificate.get(), webServerPrivateKey.get() );
-  webServer->getServer().setCache( &serverSessionsCache );
-  webServer->collectHeaders( "Cookie" );
-
-  webServer->on( "/", HTTP_GET, []() {
+  webServer.on( "/", HTTP_GET, []() {
     debugOut << "Root route\r\n";
     webRenderRootPage();
   } );
 
-  webServer->on( "/", HTTP_POST, []() {
-    for( u32 i = 0; i != webServer->args(); i++ ) {
-      Serial.print( webServer->argName( i ) );
-      Serial.print( ": " );
-      Serial.println( webServer->arg( i ) );
-    }
-
-    auto& formType = webServer->arg( "form" );
-    if( formType.equalsIgnoreCase( "login" ) ) {
-      webLoginHandler();
-      return;
-    } else if( formType.equalsIgnoreCase( "logout" ) ) {
-      webLogoutHandler();
-      return;
-    } else if( formType.equalsIgnoreCase( "restart" ) ) {
-      webRestartHandler();
-      return;
-    } else if( formType.equalsIgnoreCase( "wifi" ) ) {
-      webWifiSettingsHandler();
-      return;
-    } else if( formType.equalsIgnoreCase( "mqtt" ) ) {
-      webMqttSettingsHandler();
-      return;
-    } else if( formType.equalsIgnoreCase( "dslmcosem" ) ) {
-      webDslmCosemSettingsHandler();
-      return;
-    }
-
-    webServer->send( 204, "text/plain", "Unknown form type" );
+  webServer.on( "/", HTTP_POST, []() {
+    
+    webServer.send( 204, "text/plain", "Unknown form type" );
   } );
 
-  webServer->onNotFound( []() {
+  webServer.onNotFound( []() {
     debugOut << "Route not found\r\n";
-    webServer->send( 404, "text/html", "<h2>Error 404: Page not found</h2>" );
+    webServer.send( 404, "text/html", "<h2>Error 404: Page not found</h2>" );
   } );
 
   debugOut << "(Re-)Starting webserver" << debugEndl;
-  webServer->begin();
-}
-
-bool loadPemFileFromSerial( SettingsField field, bool oldDataIsValid ) {
-  assert( field.isDerFile() );
-
-  SerialStream serialStream{ Serial };
-
-  if( oldDataIsValid ) {
-    auto derFile = Settings.getDerFile( field );
-    serialStream << " or just press enter to confirm the current settings (" << derFile.getPrintValue() << ")\r\n";
-  } else {
-    serialStream << " or just press enter to confirm the default ssl settings ([default]) \r\n";
-  }
-
-  LocalBuffer<150> header;
-  auto length = readSerialLine( header );
-  serialStream << "\r\n";
-
-  if( !length && oldDataIsValid ) {
-    return true;
-  }
-
-  if( (!length && !oldDataIsValid) || !strncmp( header.charBegin(), "[default]", 150 ) ) {
-    Settings.set( field, Buffer::empty() );
-    return true;
-  }
-
-  if( field == SettingsField::WebServerSSLCertificate ) {
-    if( strncmp( header.charBegin(), "-----BEGIN CERTIFICATE-----", 150 ) ) {
-      serialStream << "Error: Expected certificate pem header\r\n";
-      return false;
-    }
-  } else {
-    if( strncmp( header.charBegin(), "-----BEGIN PRIVATE KEY-----", 150 ) ) {
-      serialStream << "Error: Expected private key pem header\r\n";
-      return false;
-    }
-  }
-
-  SerialUnbufferedReader<decltype(Serial)> reader{ Serial };
-  LocalBuffer<1500> derBuffer;
-
-  auto derLengthOrError = derBuffer.parseBase64( reader );
-  if( derLengthOrError.isError() ) {
-    serialStream << "Error: Could not parse base64: " << derLengthOrError.error().message() << "\r\n";
-    return false;
-  }
-
-  auto derLength = derLengthOrError.value();
-  if( derLength >= derBuffer.length() || derLength > (field.maxLength() - 2) ) {
-    serialStream << "Error: Too much data received. (Max pem file size is ~" << field.maxLength() * 4 / 3 + 90 << " bytes, or " << field.maxLength() << " bytes der data)\r\n";
-    return false;
-  }
-
-  derBuffer.shrinkLength( derLength );
-  //derBuffer.printHex(debugOut);
-
-  // Sanity check, that DER file starts with a SEQUENCE tag (0x30)
-  if( derBuffer[0] != 0x30 ) {
-    serialStream << "Error: Invalid data format.\r\n";
-    return false;
-  }
-
-  readSerialLine( header );
-  readSerialLine( header );
-  if( !strstr( header.charBegin(), "-----END " ) ) {
-    serialStream << "Expected certificate pem footer\r\n";
-    return false;
-  }
-
-  serialStream << "\r\n";
-
-  Settings.set( field, derBuffer );
-  return true;
+  webServer.begin();
 }
 
 void runSetupWizard( bool oldDataIsValid ) {
@@ -4569,15 +4036,6 @@ void runSetupWizard( bool oldDataIsValid ) {
   SettingsField::forEach( [ & ]( SettingsField field ) {
     while( true ) {
       serialStream << "Enter value for '" << field.name() << '\'';
-
-      if( field.isDerFile() ) {
-        auto ok = loadPemFileFromSerial( field, oldDataIsValid );
-        flushSerial();
-        if( ok ) {
-          break;
-        }
-        continue;
-      }
 
       // Try to get a default value
       LocalBuffer<150> oldOrAutoGeneratedValueBuffer;
@@ -4655,6 +4113,7 @@ ErrorOr<void> waitForAndProcessPacket() {
   TRY( mqttSender->connect() );
   mqttSender->publishRaw( serialReader.allDataRead() );
   {
+    debugOut << "Transmitting fields" << debugEndl;
     auto transmission = mqttSender->transmitFields();
     cosemData.mqttPublish( transmission );
 
@@ -4770,19 +4229,11 @@ void loop() {
 
     // Heart beat LED blink
     digitalWrite( D0, LOW );
-    auto start = millis();
-    // Completely destroy and reallocate the WifiServerSecure (web server) and WifiClientSecure (mqtt pubsub client)
-    // to unblock them, as only one of them can work at a time, due to a bug in the TLS handling of the Arduino libraries.
-    // Just calling .stop() is not enough, both have to be completely removed and have their destructors called
-    initMqttWifiClient();
-    initWebServer();
+    delay( 100 );
 
-    auto stop = millis();
-    if( start < stop && stop - start < 100 ) {
-      delay( 100 - (stop - start) );
-    }
+    debugOut << "Done" << debugEndl;
   }
 
   digitalWrite( D0, HIGH );
-  webServer->handleClient();
+  webServer.handleClient();
 }
