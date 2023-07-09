@@ -413,7 +413,10 @@ namespace NoStl {
       return reinterpret_cast<const Helper*>(&storage);
     }
 
-    u8 storage[sizeof( HelperImpl<R( * )(As...)> )];
+    using TFuncPointer = R( * )(As...);
+    using TFuncHelper = HelperImpl<TFuncPointer>;
+
+    u8 storage[sizeof( TFuncHelper )];
   };
 }
 
