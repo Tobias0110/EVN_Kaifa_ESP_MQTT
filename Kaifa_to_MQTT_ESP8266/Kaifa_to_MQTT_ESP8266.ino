@@ -461,15 +461,15 @@ public:
   String( std::string s ) : data{ std::move( s ) } {}
 
   bool isEmpty() const { return data.size() == 0; }
-  
+
   bool equalsIgnoreCase( const String& s ) const {
     return std::equal( data.begin(), data.end(), s.data.begin(), s.data.end(), []( char a, char b ) {
       return tolower( a ) == tolower( b );
     } );
   }
-  
+
   bool equals( const String& s ) const { return data == s.data; }
-  
+
   i32 indexOf( const char* s, u32 start = 0 ) const {
     auto x = data.find( s, start );
     return x == std::string::npos ? -1 : x;
@@ -478,16 +478,16 @@ public:
     auto x = data.find( s, start );
     return x == std::string::npos ? -1 : x;
   }
-  
+
   std::string& str() { return data; }
   const std::string& str() const { return data; }
   const char* c_str() const { return data.c_str(); }
-  
+
   u32 length() const { return data.length(); }
-  
+
   char& operator[]( u32 idx ) { return data[idx]; }
   const char& operator[]( u32 idx ) const { return data[idx]; }
-  
+
   char* begin() { return (char*)data.data(); }
 
 private:
@@ -677,7 +677,7 @@ public:
 
   template<typename T>
   ErrorOr<u32> parseBase64( T& reader ) {
-    auto nextCharToBits = [&]() -> ErrorOr<u8> {
+    auto nextCharToBits = [ & ]() -> ErrorOr<u8> {
 
       u8 x;
       do {
@@ -736,7 +736,7 @@ public:
   template<typename T>
   void encodeHtml( T& stream, bool nullTerminate = true ) {
     u32 i = 0;
-    auto append = [&]( const char* s ) {
+    auto append = [ & ]( const char* s ) {
       strncpy( (char*)ptr + i, s, byteCount - i );
       i += strlen( s );
     };
@@ -847,7 +847,7 @@ public:
   auto at( u32 idx ) const { assert( idx < byteCount );  return ptr[idx]; }
 
   Buffer slice( u32 begin, u32 end ) const {
-    assert( begin < byteCount&& end <= byteCount );
+    assert( begin < byteCount && end <= byteCount );
     return { ptr + begin, end - begin };
   }
 
@@ -1595,7 +1595,7 @@ public:
   }
 
   ErrorOr<void> validate( Buffer& buffer ) const {
-    auto validateAndCompactHexString = [&buffer]( i32 numDigits ) -> ErrorOr<void> {
+    auto validateAndCompactHexString = [ &buffer ]( i32 numDigits ) -> ErrorOr<void> {
       u32 compactingOffset = 0;
       for( u32 i = 0; i != buffer.length() - 1; i++ ) {
         auto c = buffer[i];
@@ -1622,7 +1622,7 @@ public:
       return {};
     };
 
-    auto validatePrintableASCII = [&buffer]() -> ErrorOr<void> {
+    auto validatePrintableASCII = [ &buffer ]() -> ErrorOr<void> {
       for( u32 i = 0; i != buffer.length() - 1; i++ ) {
         if( buffer[i] < 32 || buffer[i] > 126 ) {
           return Error{ "Bad unprintable ASCII character found" };
@@ -1632,7 +1632,7 @@ public:
       return {};
     };
 
-    auto validateDomainNameASCII = [&buffer]() -> ErrorOr<void> {
+    auto validateDomainNameASCII = [ &buffer ]() -> ErrorOr<void> {
       for( u32 i = 0; i != buffer.length() - 1; i++ ) {
         auto c = buffer[i];
         if( !(c >= 'A' && c <= 'Z') && !(c >= 'a' && c <= 'z') && !(c >= '0' && c <= '9') && (c != '.') && (c != '-') ) {
@@ -1643,7 +1643,7 @@ public:
       return {};
     };
 
-    auto validateLength = [&buffer]( u32 len ) -> ErrorOr<void> {
+    auto validateLength = [ &buffer ]( u32 len ) -> ErrorOr<void> {
       if( buffer.length() - 1 != len ) {
         return Error{ "" };
       }
@@ -1890,7 +1890,7 @@ public:
   void printConfiguration( U& stream ) {
     assert( available() );
 
-    SettingsField::forEach( [&]( SettingsField field ) {
+    SettingsField::forEach( [ & ]( SettingsField field ) {
       if( field.isDerFile() ) {
         auto derFile = getDerFile( field );
         stream << "* " << field.name() << ": " << derFile.getPrintValue() << "\r\n";
@@ -3112,8 +3112,8 @@ public:
   struct Arg { u16 first; u16 second; };
 
   WebPageTemplatePart( const __FlashStringHelper* s ) : storage{ .string{ s } }, type{ String } {}
-  WebPageTemplatePart( u16 f, u16 s = 0 ) : storage{ .argument{ .first{ f }, .second{ s } } }, type{ Argument } {}
-  WebPageTemplatePart( Hook h ) : storage{ .argument{ .first{ h.id } } }, type{ TemplateHook } {}
+  WebPageTemplatePart( u16 f, u16 s = 0 ) : storage{ .argument{.first{ f }, .second{ s } } }, type{ Argument } {}
+  WebPageTemplatePart( Hook h ) : storage{ .argument{.first{ h.id } } }, type{ TemplateHook } {}
 
   Type getType() const {
     return type;
@@ -3188,7 +3188,7 @@ public:
   void renderRecursive( const WebPageTemplate& pageTemplate ) {
     assert( renderFunction );
 
-    pageTemplate.forEachPart( [&]( const WebPageTemplatePart& part ) {
+    pageTemplate.forEachPart( [ & ]( const WebPageTemplatePart& part ) {
       switch( part.getType() ) {
         case WebPageTemplatePart::String:
           serverPrinter.sendContent();
@@ -3428,7 +3428,7 @@ class DummyEEPROM {
 public:
 
   explicit DummyEEPROM( const char* entries[], bool goodChecksum ) : buffer{ Buffer::allocate( 4096 ) } {
-    SettingsField::forEach( [&]( SettingsField field ) {
+    SettingsField::forEach( [ & ]( SettingsField field ) {
       auto offset = field.calcOffset();
       memcpy( (char*)buffer.begin() + offset, entries[field.enumType()], field.maxLength() );
       std::cout << "[!] EEPROM - Inserting field '" << field.name() << "' at offset " << offset << std::endl;
@@ -4125,7 +4125,7 @@ void webRenderSettingsPage( EEPROMHandleType eepromHandle, const char* message =
   // end of the full block.
 
   WebPageRendererType renderer{ *webServer };
-  renderer.render( htmlBasePageTemplate(), [&]( WebPageRendererType& renderer, BufferPrinter& printer, const WebPageTemplatePart& part ) {
+  renderer.render( htmlBasePageTemplate(), [ & ]( WebPageRendererType& renderer, BufferPrinter& printer, const WebPageTemplatePart& part ) {
     if( part == WebPageTemplatePart::TemplateHook ) {
       assert( part.asArgument().first == 0 );
       renderer.renderRecursive( htmlSettingsPageTemplate() );
@@ -4563,7 +4563,7 @@ void runSetupWizard( bool oldDataIsValid ) {
   Serial.setTimeout( 10000 );
   SerialStream serialStream{ Serial };
 
-  SettingsField::forEach( [&]( SettingsField field ) {
+  SettingsField::forEach( [ & ]( SettingsField field ) {
     while( true ) {
       serialStream << "Enter value for '" << field.name() << '\'';
 
