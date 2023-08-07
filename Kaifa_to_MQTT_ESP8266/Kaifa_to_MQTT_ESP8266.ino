@@ -1730,7 +1730,7 @@ public:
         TRY( validateAndCompactHexString( 32 ) );
         break;
       case MqttCertificateFingerprint:
-        if( buffer.isUnterminatedString( "[insecure]" ) ) {
+        if( !buffer.isUnterminatedString( "[insecure]" ) ) {
           TRY( validateAndCompactHexString( 40 ) );
         }
         break;
