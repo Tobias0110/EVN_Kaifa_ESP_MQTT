@@ -4289,10 +4289,10 @@ void webSendEncryptedSettings() {
 }
 
 void webRestartHandler() {
-
-  return;
-
   debugOut << "Restarting device!\r\n";
+
+  webServer.send_P( 200, "text/html", PSTR("Restarting device..."));
+
   delay( 2000 );
   ESP.restart();
 }
@@ -4386,7 +4386,8 @@ ErrorOr<void> webDecryptForm() {
   TRYGET( formFields, jsonData.parseFields() );
 
   if( formFields.name().isTerminatedString( "restart" ) ) {
-    debugOut << "Web: restart" << debugEndl;
+    webRestartHandler();
+
   } else if( formFields.name().isTerminatedString( "wifi" ) ) {
     TRY(webUpdateWifiSettings(formFields));
 
