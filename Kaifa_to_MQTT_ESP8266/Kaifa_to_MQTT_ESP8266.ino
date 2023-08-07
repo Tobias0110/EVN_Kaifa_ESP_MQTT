@@ -51,6 +51,7 @@
 #include "Crypto-0.4.0/src/AES.h"
 #include "Crypto-0.4.0/src/GCM.h"
 #include "CRC-master/CRC32.h"
+#include "Chacha20Poly1305.h"
 
 #else
 
@@ -207,12 +208,14 @@ template<typename>
 class MqttTopicSender;
 template<typename>
 class MqttJsonSender;
-template<typename>
+class JsonFormData;
+class ParsedJsonFormFieldsBase;
+template<int>
+class ParsedJsonFormFields;
+class EncryptedFormData;
+class FormDataEncryptor;
+template<typename T>
 class WebServerPrinter;
-class WebPageTemplatePart;
-class WebPageTemplate;
-template<typename, int>
-class WebPageRenderer;
 
 /**
 * Reimplement a few useful standard classes in the absence of the STL
@@ -227,6 +230,7 @@ namespace NoStl {
     Optional( Optional&& other ) : valueFlag{ other.valueFlag } {
       if( valueFlag ) {
         new(&data.value) T( move( other.data.value ) );
+        other.clear();
       }
     }
 
@@ -234,9 +238,7 @@ namespace NoStl {
     Optional( TArgs&& ... args ) : data{ .value{ NoStl::forward<TArgs>( args )... } }, valueFlag{ true } {}
 
     ~Optional() {
-      if( valueFlag ) {
-        data.value.~T();
-      }
+      clear();
     }
 
     bool hasValue() const { return valueFlag; }
@@ -245,6 +247,13 @@ namespace NoStl {
     T& value() { assert( valueFlag ); return data.value; }
     const T& value() const { assert( valueFlag ); return data.value; }
 
+    void clear() {
+      if( valueFlag ) {
+        data.value.~T();
+        valueFlag = false;
+      }
+    }
+
     template<typename U>
     Optional& operator=( U&& val ) {
       if( valueFlag ) {
@@ -252,6 +261,16 @@ namespace NoStl {
       } else {
         new(&data.value) T( forward<U>( val ) );
         valueFlag = true;
+      }
+      return *this;
+    }
+
+    template<typename U>
+    Optional& operator=( Optional<U>&& other ) {
+      clear();
+      if( other.valueFlag ) {
+        *this = std::move( other.data.value );
+        other.clear();
       }
       return *this;
     }
@@ -335,87 +354,6 @@ namespace NoStl {
   UniquePtr<T> makeUnique( Args&&... args ) {
     return UniquePtr<T>{ new T( forward<Args>( args )... ) };
   }
-
-  template<typename T>
-  class FunctionRef {};
-
-  template<typename R, typename ...As>
-  class FunctionRef<R( As... )> {
-  public:
-    FunctionRef() {
-      new (&storage) EmptyHelper{};
-    }
-
-    template<typename T>
-    FunctionRef( const T& lam ) {
-      static_assert(sizeof( HelperImpl<T> ) <= sizeof( storage ));
-      new (&storage) HelperImpl<T>{ lam };
-    }
-
-    R operator()( As... args ) const {
-      return helper()->call( forward<As>( args )... );
-    }
-
-    operator bool() const {
-      return !helper()->isEmpty();
-    }
-
-    FunctionRef& operator=( const FunctionRef& other ) {
-      other.helper()->copyTo( storage );
-      return *this;
-    }
-
-  private:
-    // Polymorphic type erasure helper class
-    class Helper {
-    public:
-      virtual bool isEmpty() const = 0;
-      virtual R call( As... ) const = 0;
-      virtual void copyTo( u8* ) const = 0;
-    };
-
-    class EmptyHelper final : Helper {
-    public:
-      virtual bool isEmpty() const override {
-        return true;
-      }
-
-      virtual void copyTo( u8* ptr ) const {
-        new (ptr) EmptyHelper{};
-      }
-
-      virtual R call( As... args ) const override { /* NOP */ }
-    };
-
-    template<typename T>
-    class HelperImpl final : Helper {
-      const T& lamRef;
-
-    public:
-      HelperImpl( const T& l ) : lamRef{ l } {}
-
-      virtual bool isEmpty() const override {
-        return false;
-      }
-
-      virtual void copyTo( u8* ptr ) const {
-        new (ptr) HelperImpl{ lamRef };
-      }
-
-      virtual R call( As... args ) const override {
-        return lamRef( forward<As>( args )... );
-      }
-    };
-
-    const Helper* helper() const {
-      return reinterpret_cast<const Helper*>(&storage);
-    }
-
-    using TFuncPointer = R( * )(As...);
-    using TFuncHelper = HelperImpl<TFuncPointer>;
-
-    u8 storage[sizeof( TFuncHelper )];
-  };
 }
 
 
@@ -513,6 +451,23 @@ private:
 };
 
 DummyESP8266TrueRandom ESP8266TrueRandom;
+
+namespace experimental {
+  namespace crypto {
+    struct ChaCha20Poly1305 {
+      static void encrypt(
+        void* data, const size_t dataLength, const void* key, const void* keySalt, const size_t keySaltLength,
+        void* resultingNonce, void* resultingTag, const void* aad = nullptr, const size_t aadLength = 0 ) {
+        ::ChaCha20Poly1305::encrypt( data, dataLength, key, keySalt, keySaltLength, resultingNonce, resultingTag, aad, aadLength );
+      }
+      static bool decrypt(
+        void* data, const size_t dataLength, const void* key, const void* keySalt, const size_t keySaltLength,
+        const void* encryptionNonce, const void* encryptionTag, const void* aad = nullptr, const size_t aadLength = 0 ) {
+        return ::ChaCha20Poly1305::decrypt( data, dataLength, key, keySalt, keySaltLength, encryptionNonce, encryptionTag, aad, aadLength );
+      }
+    };
+  }
+}
 
 void delay( uint32_t );
 u32 millis() {
@@ -642,7 +597,7 @@ public:
   template<typename T>
   void printHex( T& stream ) const {
     for( u32 i = 0; i < byteCount; i++ ) {
-      const char c[] = "0123456789abcdef";
+      static const char c[] = "0123456789abcdef";
 
       stream << c[ptr[i] >> 4] << c[ptr[i] & 0xF] << ' ';
 
@@ -653,6 +608,14 @@ public:
 
     if( byteCount % 16 ) {
       stream << "\r\n";
+    }
+  }
+
+  template<typename T>
+  void printHexWithoutFormatting( T& stream ) const {
+    for( u32 i = 0; i < byteCount; i++ ) {
+      static const char c[] = "0123456789abcdef";
+      stream << c[ptr[i] >> 4] << c[ptr[i] & 0xF];
     }
   }
 
@@ -857,9 +820,18 @@ public:
     memcpy( ptr + pos, other.ptr, other.byteCount );
   }
 
+  void fill( u8 val ) {
+    memset( ptr, val, byteCount );
+  }
+
   void shrinkLength( u32 size ) {
     assert( size <= byteCount );
     byteCount = size;
+  }
+
+  void shrinkLengthBy( u32 size ) {
+    assert( size <= byteCount );
+    byteCount -= size;
   }
 
   u8* begin() { return ptr; }
@@ -875,6 +847,20 @@ public:
   u8 operator[]( u32 idx ) const {
     assert( idx < byteCount );
     return ptr[idx];
+  }
+
+  bool isUnterminatedString( const char* str ) const {
+    if( !strncmp( charBegin(), str, byteCount ) ) {
+      // The buffer could be shorter than the string and strncmp would still
+      // return equality as the buffer is not terminated by a '\0'
+      return ptr[byteCount-1] == '\0' || str[byteCount] == '\0';
+    }
+
+    return false;
+  }
+
+  bool isTerminatedString( const char* str ) const {
+    return !strncmp( charBegin(), str, byteCount );
   }
 
 protected:
@@ -1059,6 +1045,12 @@ class BufferReader : public BufferReaderBase {
 public:
   explicit BufferReader( const Buffer& b ) : buffer( b ) {}
 
+  BufferReader& reset( const Buffer& b ) {
+    buffer = b;
+    index = 0;
+    return *this;
+  }
+
   bool hasNext( u32 c = 1 ) const {
     return index + c <= buffer.length();
   }
@@ -1121,6 +1113,12 @@ public:
     auto end = len >= 0 ? index + len : len + buffer.length() + 1;
     Buffer sliced = buffer.slice( index, end );
     index = end;
+    return sliced;
+  }
+
+  Buffer sliceReverse( i32 len = 0 ) {
+    auto begin = len >= 0 ? index - len : 1 - len;
+    Buffer sliced = buffer.slice( begin, index );
     return sliced;
   }
 
@@ -1277,6 +1275,10 @@ public:
     return cursor == buffer.begin();
   }
 
+  u32 printedLength() const {
+    return cursor - buffer.begin();
+  }
+
   BufferPrinter& print( i64 x, u8 minLeadingDigits = 0, i8 decimalPointPosition = 0 ) {
     if( x < 0 ) {
       if( !push( '-' ) ) {
@@ -1394,6 +1396,62 @@ public:
       memcpy( cursor, str + offset, copyLen );
       cursor += copyLen;
       offset += copyLen;
+    }
+    return *this;
+  }
+
+  BufferPrinter& printHex( u64 x, u8 minLeadingDigits = 0 ) {
+    // Reverse the hex digits and count the number of leading zeros
+    u64 reversed = 0;
+    while( x > 0 ) {
+      reversed = reversed << 4;
+      reversed |= x & 0xF;
+      x = x >> 4;
+      if( minLeadingDigits > 0 ) {
+        minLeadingDigits--;
+      }
+    }
+
+    // Print leading zeros
+    while( minLeadingDigits-- ) {
+      if( !push( '0' ) ) {
+        return *this;
+      }
+    }
+
+    // Print the hex nibbles in reversed order with the least significant first
+    while( reversed ) {
+      static const char c[] = "0123456789abcdef";
+      auto h = c[reversed & 0xF];
+      reversed = reversed >> 4;
+      if( !push( h ) ) {
+        return *this;
+      }
+    }
+
+    return *this;
+  }
+
+  BufferPrinter& printJsonEscaped( const Buffer& str ) {
+    BufferReader reader( str );
+    while( reader.hasNext() ) {
+      auto c = reader.nextU8();
+      if( c == '"' || c == '\\' || c < 0x20 ) {
+        if( !push( '\\' ) ) {
+          break;
+        }
+      }
+
+      if( c < 0x20 ) {
+        if( !push( 'u' ) ) {
+          break;
+        }
+        printHex( c, 4 );
+      } else {
+        if( !push( c ) ) {
+          break;
+        }
+      }
     }
     return *this;
   }
@@ -1517,6 +1575,7 @@ public:
     MqttBrokerClientId,
     MqttBrokerPath,
     MqttMessageMode,
+    WebFormDataKey,
     DslmCosemDecryptionKey,
 
     NumberOfFields
@@ -1526,6 +1585,7 @@ public:
     const Type type;
     const char* name;
     const char* defaultValue;
+    const char* htmlName;
     const u32 maxLength;
   };
 
@@ -1547,14 +1607,16 @@ public:
   u32 maxLength() const { return fields[type].maxLength; }
   const char* name() const { return fields[type].name; }
   const char* defaultValue() const { return fields[type].defaultValue; }
+  const char* htmlName() const { return fields[type].htmlName; }
   Type enumType() const { return type; }
-  bool canAutoGenerateValue() const { return false; }
+  bool canAutoGenerateValue() const { return type == WebFormDataKey; }
 
   bool isSecure() const {
     switch( type ) {
       case WifiPassword:
       case MqttBrokerPassword:
       case MqttCertificateFingerprint:
+      case WebFormDataKey:
       case DslmCosemDecryptionKey:
         return true;
       default:
@@ -1563,29 +1625,20 @@ public:
   }
 
   void autoGenerateValue( Buffer& buffer ) const {
+    // Just fill the buffer with random hex data
+    auto len = maxLength();
     assert( canAutoGenerateValue() );
-    assert( buffer.length() >= 13 );
+    assert( len <= buffer.length() );
 
-    // Fill with random bytes
-    constexpr u32 defaultWebPagePasswordLength = 12;
-    ESP8266TrueRandom.memfill( (char*)buffer.begin(), defaultWebPagePasswordLength );
+    // Fill the second half with random bytes
+    auto dataBegin = (len - 1) / 2;
+    ESP8266TrueRandom.memfill( (char*)buffer.begin() + dataBegin, len - 1 );
 
-    // Map the bytes from the range [0x00-0xFF] to [0x00-0x49]
-    // Do not use module as this does not create a fair discrete uniform distribution
-    for( u32 i = 0; i != defaultWebPagePasswordLength; i++ ) {
-      u8 c = (u64)buffer[i] * 74 / 256; // Multiply then divide to prevent underflow
-      if( c < 12 ) {
-        static const char specialChars[] = "!@$%&/<>=?+_";
-        buffer[i] = specialChars[c];
-      } else if( c < 22 ) {
-        buffer[i] = '0' + (c - 12);
-      } else if( c < 48 ) {
-        buffer[i] = 'a' + (c - 22);
-      } else {
-        buffer[i] = 'A' + (c - 48);
-      }
-    }
-    buffer[defaultWebPagePasswordLength] = '\0';
+    // Print the hex in place by reading the second half and writing from the first one
+    BufferPrinter printer{ buffer };
+    buffer.slice( dataBegin, len ).printHexWithoutFormatting( printer );
+
+    buffer[len - 1] = '\0';
   }
 
   ErrorOr<void> validate( Buffer& buffer ) const {
@@ -1670,11 +1723,14 @@ public:
           return Error{ "Expected 0, 1 or 2" };
         }
         break;
+      case WebFormDataKey:
+        TRY( validateAndCompactHexString( 64 ) );
+        break;
       case DslmCosemDecryptionKey:
         TRY( validateAndCompactHexString( 32 ) );
         break;
       case MqttCertificateFingerprint:
-        if( strncmp( buffer.charBegin(), "[insecure]", buffer.length() ) ) {
+        if( buffer.isUnterminatedString( "[insecure]" ) ) {
           TRY( validateAndCompactHexString( 40 ) );
         }
         break;
@@ -1689,34 +1745,23 @@ public:
     return {};
   }
 
-  struct ValidationPair {
-    const SettingsField& field;
-    const String& string;
-  };
-
-  template<int N>
-  static ErrorOr<void> validateStrings( const ValidationPair( &pairs )[N] ) {
-    return validateStrings( pairs, N );
-  }
-
-  static ErrorOr<void> validateStrings( const ValidationPair pairs[], u32 count ) {
-    for( u32 i = 0; i != count; i++ ) {
-      auto& string = pairs[i].string;
-      LocalBuffer<150> buffer;
-      buffer.insertAt( Buffer::fromString( string ), 0 );
-      buffer.shrinkLength( string.length() + 1 );
-      TRY( pairs[i].field.validate( buffer ) );
-    }
-
-    return {};
-  }
-
   template<typename T>
   static void forEach( const T& lam ) {
     for( u32 i = 0; i != NumberOfFields; i++ ) {
       SettingsField field{ (Type)i };
       lam( field );
     }
+  }
+
+  static ErrorOr<SettingsField> fromHtmlName( Buffer name ) {
+    for( u32 i = 0; i != NumberOfFields; i++ ) {
+      SettingsField field{ (Type)i };
+      if( name.isTerminatedString( field.htmlName() ) ) {
+        return field;
+      }
+    }
+
+    return Error{ "Unknown settings field" };
   }
 
   static u32 requiredStorage() {
@@ -1734,17 +1779,18 @@ private:
 };
 
 const SettingsField::FieldInfo SettingsField::fields[SettingsField::NumberOfFields] = {
-  { WifiSSID, "wifi ssid", nullptr, 33 },
-  { WifiPassword, "wifi password", nullptr, 65 },
-  { MqttBrokerAddress, "mqtt broker network address", nullptr, 21 },
-  { MqttBrokerPort, "mqtt broker network port", "1883", 7 },
-  { MqttCertificateFingerprint, "mqtt broker certificate sha1 fingerprint ('[insecure]' disables TLS)", "[insecure]", 45 },
-  { MqttBrokerUser, "mqtt broker user name", "power-meter", 21 },
-  { MqttBrokerPassword, "mqtt broker password", nullptr, 21 },
-  { MqttBrokerClientId, "mqtt broker client id", nullptr, 21 },
-  { MqttBrokerPath, "mqtt broker path", nullptr, 101 },
-  { MqttMessageMode, "mqtt message mode (0 - raw, 1 - topics, 2 - json)", "2", 2 },
-  { DslmCosemDecryptionKey, "dslm/cosem decryption key (meter key)", nullptr, 33 },
+  { WifiSSID, "wifi ssid", nullptr, "ssid", 33 },
+  { WifiPassword, "wifi password", nullptr, "wifipwd", 65 },
+  { MqttBrokerAddress, "mqtt broker network address", nullptr, "mip", 21 },
+  { MqttBrokerPort, "mqtt broker network port", "1883", "mport", 7 },
+  { MqttCertificateFingerprint, "mqtt broker certificate sha1 fingerprint ('[insecure]' disables TLS)", "[insecure]", "mfgpt", 45 },
+  { MqttBrokerUser, "mqtt broker user name", "power-meter", "muser", 21 },
+  { MqttBrokerPassword, "mqtt broker password", nullptr, "mpwd", 21 },
+  { MqttBrokerClientId, "mqtt broker client id", nullptr, "mclient", 21 },
+  { MqttBrokerPath, "mqtt broker path", nullptr, "mpath", 101 },
+  { MqttMessageMode, "mqtt message mode (0 - raw, 1 - topics, 2 - json)", "2", "mmode", 2 },
+  { WebFormDataKey, "web server password", nullptr, nullptr, 65 },
+  { DslmCosemDecryptionKey, "dslm/cosem decryption key (meter key)", nullptr, "dkey", 33 },
 };
 
 template<typename T>
@@ -2865,6 +2911,719 @@ private:
   bool hasAtLeastOneField{ false };
 };
 
+template<int N>
+class ByteArray {
+public:
+  static constexpr int Length = N;
+
+  ByteArray() = default;
+  ByteArray( const ByteArray& ) = default;
+
+  Buffer asBuffer() {
+    return { storage, N };
+  }
+
+  auto begin() { return storage; }
+  auto begin() const { return storage; }
+  constexpr auto length() const { return N; }
+
+  bool operator == ( const ByteArray& other ) const {
+    return !memcmp( storage, other.storage, N );
+  }
+
+  bool operator != ( const ByteArray& other ) const { return !(*this == other); }
+private:
+  u8 storage[N];
+};
+
+class FlatJsonParser {
+public:
+
+  struct ParsingItem {
+    const char* name;
+    NoStl::Optional<Buffer> value;
+  };
+
+  struct KeyValuePair {
+    Buffer name;
+    Buffer value;
+  };
+
+  FlatJsonParser( BufferReader rd ) : reader{ rd } {}
+
+  template<int N>
+  ErrorOr<void> parseItemValues( ParsingItem( &items )[N] ) {
+    return parseItemValuesN( items, N );
+  }
+
+  template<int N>
+  ErrorOr<u32> parseKeyValuePairs( NoStl::Optional<KeyValuePair>( &items )[N] ) {
+    return parseKeyValuePairsN( items, N );
+  }
+
+  ErrorOr<void> parseItemValuesN( ParsingItem items[], u32 numItems ) {
+    TRY( parseBegin() );
+
+    auto numUnresolvedItems = countUnresolvedItems( items, numItems );
+    while( reader.hasNext() && numUnresolvedItems ) {
+      TRYGET( keyValuePair, parseNext() );
+      numUnresolvedItems -= (setUnresolvedItem( items, numItems, keyValuePair ) ? 1 : 0);
+      
+      TRYGET( isEnd, parseSeparatorOrEnd() );
+      if( isEnd ) {
+        break;
+      }
+    }
+
+    if( numUnresolvedItems ) {
+      return Error{ "JSON misses fields" };
+    }
+
+    return {};
+  }
+
+  ErrorOr<u32> parseKeyValuePairsN( NoStl::Optional<KeyValuePair> items[], u32 numItems ) {
+    TRY( parseBegin() );
+
+    u32 numParsedPairs = 0;
+    while( reader.hasNext() && numParsedPairs < numItems ) {
+      TRYGET( keyValuePair, parseNext() );
+      items[numParsedPairs++] = NoStl::move( keyValuePair );
+
+      TRYGET( isEnd, parseSeparatorOrEnd() );
+      if( isEnd ) {
+        break;
+      }
+    }
+
+    return { numParsedPairs };
+  }
+
+private:
+  u32 countUnresolvedItems( const ParsingItem items[], u32 numItems ) {
+    u32 ctr = 0;
+    for( u32 i = 0; i != numItems; i++ ) {
+      ctr += (!items[i].value.hasValue() ? 1 : 0);
+    }
+    return ctr;
+  }
+
+  bool setUnresolvedItem( ParsingItem items[], u32 numItems, const KeyValuePair& pair ) {
+    for( u32 i = 0; i != numItems; i++ ) {
+      if( !items[i].value.hasValue() && pair.name.isTerminatedString( items[i].name ) ) {
+        items[i].value = pair.value;
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  void skipWhitespace() {
+    while( reader.hasNext() ) {
+      char c = reader.peakU8();
+      if( c != ' ' && c != '\t' && c != '\n' && c != '\r' ) {
+        return;
+      }
+      reader.nextU8();
+    }
+  }
+
+  ErrorOr<void> parseBegin() {
+    skipWhitespace();
+    TRY( reader.assertU8( '{' ) );
+
+    return {};
+  }
+
+  ErrorOr<bool> parseSeparatorOrEnd() {
+    skipWhitespace();
+    if( !reader.hasNext() ) {
+      return Error{ "Invalid JSON" };
+    }
+
+    char c = reader.nextU8();
+    if( c == '}' ) {
+      return true;
+    }
+
+    if( c != ',' ) {
+      return Error{ "Invalid JSON" };
+    }
+
+    return false;
+  }
+
+  ErrorOr<Buffer> parseConstant() {
+    char startChar = reader.nextU8();
+
+    const char* str;
+    u32 len;
+    switch( startChar ) {
+      case 'n': str = "ull"; len = 3; break;
+      case 't': str = "rue"; len = 3;  break;
+      case 'f': str = "alse"; len = 4; break;
+      default:
+        return Error{ "Invalid JSON constant" };
+    }
+
+    if( !reader.hasNext( len ) ) {
+      return Error{ "Invalid JSON constant" };
+    }
+
+    auto slice = reader.slice( len );
+    if( slice.isUnterminatedString( str ) ) {
+      return Error{ "Invalid JSON constant" };
+    }
+
+    return reader.sliceReverse( len + 1 );
+  }
+
+  ErrorOr<Buffer> parseString() {
+    bool isEscaped = false;
+    u32 charCount = 0;
+    u8* writePointer = reader.slice().begin();
+
+    while( reader.hasNext() ) {
+      char c = reader.nextU8();
+      charCount++;
+
+      if( isEscaped ) {
+        isEscaped = false;
+
+        switch( c ) {
+          case '\\': *(writePointer++) = '\\'; continue;
+          case '/': *(writePointer++) = '/'; continue;
+          case 'b': *(writePointer++) = '\b'; continue;
+          case 'f': *(writePointer++) = '\f'; continue;
+          case 'r': *(writePointer++) = '\r'; continue;
+          case 'n': *(writePointer++) = '\n'; continue;
+          case 't': *(writePointer++) = '\t'; continue;
+          case 'u':
+          default:
+            return Error{ "Invalid JSON string" };
+        }
+
+      } else {
+        if( c == '"' ) {
+          *(writePointer++) = '\0';
+
+          auto buffer = reader.sliceReverse( charCount );
+          buffer.shrinkLength( charCount - (reader.slice().begin() - writePointer) );
+          return buffer;
+        }
+
+        if( c == '\\' ) {
+          isEscaped = true;
+          continue;
+        }
+      }
+
+      *(writePointer++) = c;
+    }
+
+    return Error{ "Invalid JSON string" };
+  }
+
+  ErrorOr<Buffer> parseInteger() {
+
+    u32 charCount = 0;
+    while( reader.hasNext() ) {
+      auto c = reader.peakU8();
+      if( c == '.' || c == 'e' || c == 'E' ) {
+        return Error{ "Only JSON integers are supported" };
+      }
+
+      // Stop at any char that is not a digit, except if its a '-' at
+      // the very beginning
+      if( (c < '0' || c > '9') && !(c == '-' && !charCount) ) {
+        if( !charCount ) {
+          return Error{ "Invalid JSON number" };
+        }
+
+        return reader.sliceReverse( charCount );
+      }
+
+      // Only allow a single leading zero, to indicate zero
+      if( c == '0' && !charCount ) {
+        reader.nextU8();
+        return reader.sliceReverse( 1 );
+      }
+
+      reader.nextU8();
+      charCount++;
+    }
+
+    return Error{ "Invalid JSON number" };
+  }
+
+  ErrorOr<KeyValuePair> parseNext() {
+    skipWhitespace();
+    TRY( reader.assertU8( '"' ) );
+    TRYGET( memberName, parseString() );
+
+    skipWhitespace();
+    TRY( reader.assertU8( ':' ) );
+
+    skipWhitespace();
+    if( !reader.hasNext() ) {
+      return Error{ "Invalid JSON" };
+    }
+
+    char startChar = reader.peakU8();
+
+    if( startChar == '{' || startChar == '[' ) {
+      return Error{ "Only flat JSON is supported" };
+    }
+
+    NoStl::Optional<Buffer> memberValue;
+    if( startChar == '"' ) {
+      reader.nextU8();
+      TRYGET( val, parseString() );
+      memberValue = val;
+
+    } else if( startChar == 't' || startChar == 'f' || startChar == 'n' ) {
+      TRYGET( val, parseConstant() );
+      memberValue = val;
+
+    } else {
+      TRYGET( val, parseInteger() );
+      memberValue = val;
+    }
+
+    assert( memberValue.hasValue() );
+    return { memberName, memberValue.value() };
+  }
+
+  BufferReader reader;
+};
+
+class JsonFormData {
+public:
+  template<typename TSettings>
+  static JsonFormData fromSettings( Buffer buffer, TSettings& Settings ) {
+    assert( Settings.available() );
+
+    BufferPrinter printer( buffer );
+    printer << '{';
+
+    bool first = true;
+    SettingsField::forEach( [ & ]( SettingsField field ) {
+      // Skip secure fields
+      if( field.isSecure() || !field.htmlName() ) {
+        return;
+      }
+
+      // Add json field delimiter
+      if( !first ) {
+        printer << ',';
+      }
+      first = false;
+
+      printer << '"' << field.htmlName() << '"' << ':' << '"';
+      auto fieldData = Settings.getCStringBuffer( field );
+      fieldData.shrinkLengthBy( 1 );
+      printer.printJsonEscaped( fieldData );
+      printer << '"';
+    } );
+
+    auto numBytes = printer.printChar( '}' ).printedLength();
+    printer.cString();
+
+    buffer.shrinkLength( numBytes );
+
+    return { buffer };
+  }
+
+  JsonFormData( Buffer j ) : jsonText{ j } {}
+
+  template<typename TStream>
+  void print( TStream& printer ) {
+    printer << jsonText.charBegin();
+  }
+
+  auto releaseData() {
+    auto buffer = jsonText;
+    jsonText.shrinkLength( 0 );
+    return buffer;
+  }
+
+  ErrorOr<ParsedJsonFormFields<10>> parseFields();
+
+private:
+
+  Buffer jsonText;
+};
+
+class ParsedJsonFormFieldsBase {
+protected:
+  union Storage {
+    struct {
+      SettingsField field;
+      Buffer value;
+    } data;
+    u8 placeholder;
+
+    Storage();
+    ~Storage();
+  };
+
+  static ErrorOr<u32> initFromKeyValuePairs( Buffer& formName, Storage fields[], const u32 numFields, const NoStl::Optional<FlatJsonParser::KeyValuePair> items[], const u32 numItems ) {
+    u32 numStoredFields = 0;
+    bool hasFormName = false;
+
+    for( u32 i = 0; i != numItems; i++ ) {
+      auto& item = items[i];
+      if( !item.hasValue() ) {
+        continue;
+      }
+
+      auto pair = item.value();
+      if( pair.name.isTerminatedString( "form" ) ) {
+        formName = pair.value;
+        hasFormName = true;
+        continue;
+      }
+
+      if( numStoredFields >= numFields ) {
+        return Error{ "Too many form fields" };
+      }
+
+      TRYGET( field, SettingsField::fromHtmlName( pair.name ) );
+
+      fields[numStoredFields].data.field = field;
+      fields[numStoredFields].data.value = pair.value;
+      numStoredFields++;
+    }
+
+    if( !hasFormName ) {
+      return Error{ "Missing form name" };
+    }
+
+    return numStoredFields;
+  }
+
+  static ErrorOr<void> validateFields( Storage fields[], const u32 numFields, const SettingsField requiredFields[], const u32 numRequiredFields ) {
+    if( numFields != numRequiredFields ) {
+      return Error{ "Wrong field count" };
+    }
+
+    for( u32 i = 0; i != numRequiredFields; i++ ) {
+      Storage* item = nullptr;
+      for( u32 j = 0; j != numFields; j++ ) {
+        if( requiredFields[i] == fields[j].data.field ) {
+          item = fields + j;
+          break;
+        }
+      }
+
+      if( !item ) {
+        return Error{ "Missing field" };
+      }
+
+      TRY( item->data.field.validate( item->data.value ) );
+    }
+
+    return {};
+  }
+};
+
+// Implement the union destructor out of line to prevent the Arduino IDE from creating
+// bogus prototypes all over the file
+ParsedJsonFormFieldsBase::Storage::Storage() : placeholder{ 0 } {}
+ParsedJsonFormFieldsBase::Storage::~Storage() {}
+
+template<int N>
+class ParsedJsonFormFields : public ParsedJsonFormFieldsBase {
+public:
+
+  static ErrorOr<ParsedJsonFormFields> fromKeyValuePairs( const NoStl::Optional<FlatJsonParser::KeyValuePair> items[], const u32 numItems ) {
+    ParsedJsonFormFields fields;
+
+    TRYGET( numStoredFields, initFromKeyValuePairs( fields.formName, fields.fields, N, items, numItems ) );
+    fields.numStoredFields = numStoredFields;
+
+    return fields;
+  }
+
+  Buffer name() const { return formName; }
+  u32 fieldCount() const { return numStoredFields; }
+
+  template<int NFields>
+  ErrorOr<void> validate( const SettingsField( &requiredFields )[NFields] ) {
+    return validateFields( fields, numStoredFields, requiredFields, NFields );
+  }
+
+  template<typename T>
+  void persist(T& Settings) const {
+    // TODO: Detemplatize
+    for( u32 i = 0; i != numStoredFields; i++ ) {
+      Settings.set( fields[i].data.field, fields[i].data.value );
+    }
+  }
+
+  template<typename TStream>
+  void print( TStream& stream ) const {
+    stream << "Form: " << formName.charBegin() << '\n';
+    for( u32 i = 0; i != numStoredFields; i++ ) {
+      stream << ' ' << '-' << ' ' << fields[i].data.field.htmlName() << ':' << ' ' << fields[i].data.value.charBegin() << '\n';
+    }
+  }
+
+private:
+  ParsedJsonFormFields() : numStoredFields{ 0 }, formName{ Buffer::empty() } {}
+
+  u32 numStoredFields;
+  Storage fields[N];
+  Buffer formName;
+};
+
+ErrorOr<ParsedJsonFormFields<10>> JsonFormData::parseFields() {
+  FlatJsonParser parser{ BufferReader{ jsonText } };
+  NoStl::Optional<FlatJsonParser::KeyValuePair> pairs[10];
+
+  TRYGET( numParsedPairs, parser.parseKeyValuePairs( pairs ) );
+
+  return ParsedJsonFormFields<10>::fromKeyValuePairs( pairs, numParsedPairs );
+}
+
+class EncryptedFormData {
+public:
+  using Nonce = ByteArray<12>;
+  using Salt = ByteArray<16>;
+  using Tag = ByteArray<16>;
+  using Key = ByteArray<32>;
+
+  static auto createRandomNonce() {
+    Nonce nonce;
+    ESP8266TrueRandom.memfill( (char*)nonce.begin(), nonce.length() );
+    return nonce;
+  }
+
+  static auto createRandomSalt() {
+    Salt salt;
+    ESP8266TrueRandom.memfill( (char*)salt.begin(), salt.length() );
+    return salt;
+  }
+
+  static ErrorOr<EncryptedFormData> fromBase64( Buffer encodedNonce, Buffer encodedSalt, Buffer encodedTag, Buffer encodedData ) {
+    EncryptedFormData formData{ encodedData };
+    BufferReader reader{ encodedNonce };
+    TRYGET( nonceSize, formData.nonce.asBuffer().parseBase64( reader ) );
+    TRYGET( saltSize, formData.salt.asBuffer().parseBase64( reader.reset( encodedSalt ) ) );
+    TRYGET( tagSize, formData.tag.asBuffer().parseBase64( reader.reset( encodedTag ) ) );
+    TRYGET( dataSize, formData.data.parseBase64( reader.reset( encodedData ) ) );
+    formData.data.shrinkLength( dataSize );
+
+    if( nonceSize != Nonce::Length || saltSize != Salt::Length || tagSize != Tag::Length ) {
+      return Error{ "Invalid encryption buffer sizes" };
+    }
+
+    return formData;
+  }
+
+  static EncryptedFormData fromJson( JsonFormData& jsonData, const Key& encryptionKey ) {
+    auto salt = createRandomSalt();
+    auto data = jsonData.releaseData();
+
+    EncryptedFormData::Nonce nonce;
+    EncryptedFormData::Tag tag;
+    experimental::crypto::ChaCha20Poly1305::encrypt(
+      data.begin(), data.length(), encryptionKey.begin(), salt.begin(), salt.length(),
+      nonce.begin(), tag.begin()
+    );
+
+    auto nextNonce = createRandomNonce();
+    return { nonce, nextNonce, salt, tag, data };
+  }
+
+  EncryptedFormData( Nonce n, Salt s, Tag t, Buffer d )
+    : nonce{ n }, salt{ s }, tag{ t }, data{ d } {}
+
+  EncryptedFormData( Nonce n, Nonce nn, Salt s, Tag t, Buffer d )
+    : nonce{ n }, nextNonce{ nn }, salt{ s }, tag{ t }, data{ d } {}
+
+  const Nonce& getNonce() const { return nonce; }
+  const Nonce& getNextNonce() const { assert( nextNonce.hasValue() ); return nextNonce.value(); }
+
+  ErrorOr<Buffer> tryDecrypt( const Key& encryptionKey ) {
+    bool didDecrypt = experimental::crypto::ChaCha20Poly1305::decrypt(
+      data.begin(), data.length(), encryptionKey.begin(), salt.begin(), salt.length(),
+      nonce.begin(), tag.begin()
+    );
+
+    if( didDecrypt ) {
+      return data;
+    }
+
+    return Error{ "Could not decrypt message" };
+  }
+
+  template<typename T>
+  void printJson( T& stream ) const {
+    // Some ugly const-casting ahead, but we know that we do not mutate
+    // the ByteArrays
+
+    stream << "{\"nonce\":\"";
+    const_cast<Nonce&>(nonce).asBuffer().printBase64( stream );
+
+    if( nextNonce.hasValue() ) {
+      stream << "\",\"nextNonce\":\"";
+      const_cast<Nonce&>(nextNonce.value()).asBuffer().printBase64( stream );
+    }
+
+    stream << "\",\"salt\":\"";
+    const_cast<Salt&>(salt).asBuffer().printBase64( stream );
+    stream << "\",\"tag\":\"";
+    const_cast<Tag&>(tag).asBuffer().printBase64( stream );
+    stream << "\",\"data\":\"";
+    data.printBase64( stream );
+    stream << '\"' << '}';
+  }
+
+  template<typename T>
+  void print( T& stream ) const {
+    // Some ugly const-casting ahead, but we know that we do not mutate
+    // the ByteArrays
+
+    stream << "Nonce: ";
+    const_cast<Nonce&>(nonce).asBuffer().printHex( stream );
+
+    if( nextNonce.hasValue() ) {
+      stream << "\nNext Nonce: ";
+      const_cast<Nonce&>(nextNonce.value()).asBuffer().printHex( stream );
+    }
+
+    stream << "\nSalt: ";
+    const_cast<Salt&>(salt).asBuffer().printHex( stream );
+
+    stream << "\nTag: ";
+    const_cast<Tag&>(tag).asBuffer().printHex( stream );
+
+    stream << "\nData: ";
+    data.printHex( stream );
+
+    stream << '\n';
+  }
+
+private:
+  explicit EncryptedFormData( Buffer d ) : data{ d } {};
+
+  Salt salt;
+  Nonce nonce;
+  NoStl::Optional<Nonce> nextNonce;
+  Tag tag;
+  Buffer data;
+};
+
+class FormDataEncryptor {
+public:
+  static constexpr u32 numActiveNonce = 6;
+  static constexpr u32 nonceMaxAge = 15 * 60 * 1000; // 15 min in ms
+
+  struct NonceEntry {
+    u32 timeStamp{ (u32)-1 };
+    EncryptedFormData::Nonce nonce;
+
+    void clear() {
+      timeStamp = (u32)-1;
+    }
+
+    bool hasValue() const {
+      return timeStamp != (u32)-1;
+    }
+
+    void setValueNow( const EncryptedFormData::Nonce& nonceValue ) {
+      nonce = nonceValue;
+      timeStamp = millis();
+    }
+
+    bool tryConsumeNow( const EncryptedFormData::Nonce& nonceValue, u32 currentTime ) {
+      if( !hasValue() ) {
+        return false;
+      }
+
+      // If the nonce expired already, just clear it
+      if( timeStamp > currentTime || (currentTime - timeStamp) >= nonceMaxAge ) {
+        clear();
+        return false;
+      }
+
+      if( nonce != nonceValue ) {
+        return false;
+      }
+
+      clear();
+      return true;
+    }
+  };
+
+  FormDataEncryptor() {
+    for( u32 i = 0; i != numActiveNonce; i++ ) {
+      nonceTable[i].clear();
+    }
+  }
+
+  void setHexEncryptionKey( const Buffer& buffer ) {
+    assert( (buffer.length() - 1) / 2 == encryptionKey.length() );
+    // Cut off the \0 and parse the hex into the key buffer
+    BufferReader reader{ buffer.slice( 0, buffer.length() - 1 ) };
+    encryptionKey.asBuffer().parseHex( reader, 64 );
+  }
+
+  EncryptedFormData encryptAndSign( JsonFormData& jsonData ) {
+    // Encrypt the data with a random nonce, and provide the client with a second
+    // random one that it should use to craft a valid response message
+
+    auto encryptedData = EncryptedFormData::fromJson( jsonData, encryptionKey );
+    registerNonce( encryptedData.getNextNonce() );
+
+    return encryptedData;
+  }
+
+  ErrorOr<JsonFormData> decryptAndVerify( EncryptedFormData& cipherData ) {
+    // Check if the provided nonce is recognized as valid, only then even try
+    // to decrypt the data
+
+    TRY( tryConsumeNonce( cipherData.getNonce() ) );
+    TRYGET( plainText, cipherData.tryDecrypt( encryptionKey ) );
+
+    return { plainText };
+  }
+
+  const EncryptedFormData::Nonce& makeNonce() {
+    auto* entry = registerNonce( EncryptedFormData::createRandomNonce() );
+    return entry->nonce;
+  }
+
+private:
+  NonceEntry* registerNonce( const EncryptedFormData::Nonce& nonce ) {
+    auto* entry = nonceTable + writeIdx;
+    writeIdx = writeIdx >= numActiveNonce - 1 ? 0 : writeIdx + 1;
+
+    entry->setValueNow( nonce );
+
+    return entry;
+  }
+
+  ErrorOr<void> tryConsumeNonce( const EncryptedFormData::Nonce& nonce ) {
+    auto currentTime = millis();
+
+    for( u32 i = 0; i != numActiveNonce; i++ ) {
+      if( nonceTable[i].tryConsumeNow( nonce, currentTime ) ) {
+        return {};
+      }
+    }
+
+    return Error{ "Invalid form nonce" };
+  }
+
+  u32 writeIdx{ 0 };
+  NonceEntry nonceTable[numActiveNonce];
+  EncryptedFormData::Key encryptionKey;
+};
+
+
 template<typename T>
 class WebServerPrinter final : public BufferPrinter {
 public:
@@ -2886,121 +3645,6 @@ protected:
 private:
   T& webServer;
 };
-
-class WebPageTemplatePart {
-public:
-  enum Type {
-    String, Argument, TemplateHook
-  };
-
-  struct Hook { u16 id; };
-  struct Arg { u16 first; u16 second; };
-
-  WebPageTemplatePart( const __FlashStringHelper* s ) : storage{ .string{ s } }, type{ String } {}
-  WebPageTemplatePart( u16 f, u16 s = 0 ) : storage{ .argument{.first{ f }, .second{ s } } }, type{ Argument } {}
-  WebPageTemplatePart( Hook h ) : storage{ .argument{.first{ h.id } } }, type{ TemplateHook } {}
-
-  Type getType() const {
-    return type;
-  }
-
-  bool operator==( Type t ) const {
-    return type == t;
-  }
-
-  const __FlashStringHelper* asString() const {
-    assert( type == String );
-    return storage.string;
-  }
-
-  Arg asArgument() const {
-    assert( type == TemplateHook || type == Argument );
-    return storage.argument;
-  }
-
-private:
-  union {
-    const __FlashStringHelper* string;
-    Arg argument;
-  } storage;
-  Type type;
-};
-
-class WebPageTemplate {
-public:
-  WebPageTemplate( const WebPageTemplatePart* p, u32 cnt ) : parts{ p }, partCount{ cnt } {}
-
-  template<int N>
-  WebPageTemplate( const WebPageTemplatePart( &arr )[N] ) : parts{ arr }, partCount{ N } {}
-
-  template<typename T>
-  void forEachPart( const T& func ) const {
-    for( u32 i = 0; i < partCount; i++ ) {
-      func( parts[i] );
-    }
-  }
-
-private:
-  const WebPageTemplatePart* parts;
-  const u32 partCount;
-};
-
-template<typename T, int N>
-class WebPageRenderer {
-public:
-
-  WebPageRenderer( T& server )
-    : serverPrinter{ printBuffer, server }, webServer{ server } {}
-
-  using RenderFunction = NoStl::FunctionRef<void( WebPageRenderer&, BufferPrinter&, const WebPageTemplatePart& )>;
-  void render( const WebPageTemplate& pageTemplate, RenderFunction func ) {
-    assert( !renderFunction );
-    serverPrinter.clear();
-
-    if( !webServer.chunkedResponseModeStart( 200, "text/html" ) ) {
-      webServer.send( 505, "text/html", "<h2>Error 505: HTTP1.1 required</h2>" );
-      return;
-    }
-
-    renderFunction = func;
-    renderRecursive( pageTemplate );
-
-    serverPrinter.sendContent();
-    webServer.chunkedResponseFinalize();
-    renderFunction = RenderFunction{};
-  }
-
-  void renderRecursive( const WebPageTemplate& pageTemplate ) {
-    assert( renderFunction );
-
-    pageTemplate.forEachPart( [ & ]( const WebPageTemplatePart& part ) {
-      switch( part.getType() ) {
-        case WebPageTemplatePart::String:
-          serverPrinter.sendContent();
-          webServer.sendContent_P( (PGM_P)part.asString() );
-          break;
-
-        case WebPageTemplatePart::TemplateHook:
-          renderFunction( *this, serverPrinter, part );
-          break;
-
-        case WebPageTemplatePart::Argument:
-          renderFunction( *this, serverPrinter, part );
-          break;
-
-        default:
-          assert( false );
-      }
-    } );
-  }
-
-private:
-  LocalBuffer<N> printBuffer;
-  WebServerPrinter<T> serverPrinter;
-  T& webServer;
-  RenderFunction renderFunction;
-};
-
 
 /**
 * More (most of the) code for mocking the system on a dektop computer. This section
@@ -3338,6 +3982,10 @@ public:
 
   void send( u32 status, const char* mime, const char* data ) { send( status, String{ mime }, String{ data } ); }
   void send_P( u32 status, const char* mime, const char* data ) { send( status, String{ mime }, String{ data } ); }
+  void send_P( u32 status, const char* mime, const char* data, u32 size ) {
+    send( status, String{ mime }, String{ "<binary data>" } );
+    debugOut << "[!] Body length: " << size << " bytes" << std::endl;
+  }
   void send( u32 status, String mime, String data ) {
     debugOut << "[!] WebServer sent status " << status << " with mime type '" << mime.str() << "'" << std::endl;
     debugOut << "[!] Body is: " << data.str() << std::endl;
@@ -3408,19 +4056,20 @@ public:
     return getHeaderIteratorByIndex( idx )->second;
   }
 
-  String header( const char* name ) const {
+  const String& header( const char* name ) const {
+    static const String emptyString;
     auto it = currentHeaders.find( name );
-    return it != currentHeaders.end() ? it->second : "";
+    return it != currentHeaders.end() ? it->second : emptyString;
   }
 
-  String headerName( u32 idx ) const {
+  const String& headerName( u32 idx ) const {
     return getHeaderIteratorByIndex( idx )->first;
   }
 
   void stop() {}
   void close() {}
 
-  using StringMapInitList = std::initializer_list<std::pair<std::string, std::string>>;
+  using StringMapInitList = std::initializer_list<std::pair<std::string, String>>;
   void doRequest( std::string url, HttpMethod method, std::string body, StringMapInitList formArguments = {}, StringMapInitList headers = {} ) {
     currentFormArguments.clear();
     currentFormArguments.emplace_back( std::make_pair( String{ "plain" }, std::move( body ) ) );
@@ -3454,7 +4103,7 @@ public:
     methIt->second();
   }
 
-  std::string responseHeader( const std::string& name ) {
+  String responseHeader( const std::string& name ) {
     auto it = responseHeaders.find( name );
     return it != responseHeaders.end() ? it->second : "";
   }
@@ -3462,8 +4111,8 @@ public:
 private:
   std::map<std::string, std::map<HttpMethod, RequestHandlerFunction>> handlers;
   std::vector<std::pair<String, String>> currentFormArguments;
-  std::map<std::string, std::string> currentHeaders;
-  std::map<std::string, std::string> responseHeaders;
+  std::map<std::string, String> currentHeaders;
+  std::map<std::string, String> responseHeaders;
   RequestHandlerFunction notFoundHandler{ nullptr };
 };
 
@@ -3515,6 +4164,7 @@ const char* eepromInitData[] = {
   "client-id",         // MqttBrokerClientId
   "a/base/path",       // MqttBrokerPath
   "2",                 // MqttMessageMode
+  "000102030405060708090A0B0C0D0E0F000102030405060708090A0B0C0D0E0F", // WebFormDataKey (a really insecure key!)
   "36C66639E48A8CA4D6BC8B282A793BBB", // DslmCosemDecryptionKey (example provided by EVN)
 };
 
@@ -3537,6 +4187,14 @@ void loop();
 
 int main() {
 
+  // Set a nonce generator that always returns the same hard-coded nonce
+  ChaCha20Poly1305::setNonceGenerator( []( uint8_t* nonce, const size_t len ) {
+    static constexpr uint8_t hardcodedNonce[12] = { 0x30, 0x68, 0x60, 0x26, 0x4A, 0xA8, 0x7E, 0x84, 0x25, 0x2F, 0x93, 0x2D };
+    assert( len <= sizeof( hardcodedNonce ) );
+    memcpy( nonce, hardcodedNonce, len );
+    return nonce;
+  } );
+
   setup();
 
   Serial.setReadSourceFromBuffer( true );
@@ -3544,9 +4202,14 @@ int main() {
   loop();
 
   webServer.doRequest( "/", HTTP_GET, "" );
-  webServer.doRequest( "/", HTTP_POST, "", { { "form", "login" }, { "client", "client-id" }, { "password", "a-secure-password" } } );
+  webServer.doRequest( "/api", HTTP_GET, "" );
 
-  auto cookieString = webServer.responseHeader( "Set-Cookie" );
+  //webServer.doRequest("/", HTTP_POST, "", {{"form", "login"}, {"client", "client-id"}, {"password", "a-secure-password"}});
+  webServer.doRequest( "/api", HTTP_POST,
+    "{\"nonce\":\"9kViesrPh3qRZOzW\",\"salt\":\"KI6Ukdc7dZWVXdXvdiZ5kg==\",\"tag\":\"wFzavQWSXxoM4KQGc6mQkg==\",\"data\":\"gp+yOt9pg4YtyZAgkPd0x4349l+L9JgqKSmxsFemFZUios8/HOuIUIc0OnVS8R/JYyfitg==\"}",
+    {}, { { "Content-Type", "application/json" } } );
+
+  /*auto cookieString = webServer.responseHeader("Set-Cookie");
   assert( cookieString.rfind( "auth=", 0 ) == 0 );
   auto endPos = cookieString.find( ';' );
   auto cookie = cookieString.substr( 0, endPos );
@@ -3560,7 +4223,7 @@ int main() {
   webServer.doRequest( "/", HTTP_POST, "", {
     { "form", "mqtt" }, { "address", "2.2.2.2" }, { "port", "8883" }, { "fingerprint", "[insecure]" }, { "user", "coolUser" }, { "password", "coolPassword" },
     { "client-id", "coolId" }, { "path", "/a/cool/path" }, { "mode", "1" }
-    }, { { "Cookie", cookie } } );
+    }, { { "Cookie", cookie } } );*/
 
   return 0;
 }
@@ -3574,176 +4237,11 @@ ESP8266WebServer webServer{ 80 };
 
 #endif
 
-class WebPageTemplateArgs {
-public:
-  enum : u16 {
-    SettingsPageMessage
-  };
-};
-
-// Web page templates are constructed from F-strings which need to be inside
-// function scopes. Therefore the tempalte parts arrays are static constants
-// in functions.
-WebPageTemplate htmlBasePageTemplate() {
-  static const WebPageTemplatePart parts[] = { F( R"html(<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <title>ESP8266 Power Meter to MQTT Gateway</title>
-    <style>
-      body {
-        font-family: sans-serif;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        background: #bfccdf;
-      }
-      .block, .topbar, .message {
-        background: #f1f1f1;
-        padding: 2rem;
-        margin: 2rem;
-        border-radius: 1rem;
-        box-shadow: 4px 4px 7px 1px #4e4e4e73;
-        min-width: 16vw;
-      }
-      .topbar {
-        display: flex;
-        flex-direction: row;
-        gap: 1rem;
-      }
-      .message:empty {
-        display: none;
-      }
-      .message > span {
-        color: red;
-      }
-      .block form {
-        display: grid;
-        grid-template-columns: 1fr 4fr;
-        max-width: 20rem;
-        grid-gap: 1rem;
-      }
-      .block .buttons {
-        grid-column: 2;
-        display: flex;
-        flex-direction: row;
-        gap: 1rem;
-        justify-content: center;
-      }
-      :not(.login) > input:invalid {
-        border-color: red;
-        color: red;
-      }
-      .hex {
-        font-family: monospace;
-      }
-    </style>
-  </head>
-  <body>)html" ),
-    WebPageTemplatePart::Hook{ 0 },
-    F( R"html(</body></html>)html" )
-  };
-  return { parts };
-}
-
-WebPageTemplate htmlLoginPageTemplate() {
-  static const WebPageTemplatePart parts[] = { F( R"html(<div class="block">
-      <h1>Login</h1>
-      <form action="/" method="post" class="login">
-        <input type="text" name="form" value="login" hidden />
-        <label for="name-field">Name:</label>
-        <input id="name-field" type="text" name="client" required/>
-        <label for="password-field">Password:</label>
-        <input id="password-field" type="password" name="password" required>
-        <button type="submit">Login</button>
-      </form>
-    </div>)html" ) };
-  return { parts };
-}
-
-WebPageTemplate htmlRestartPageTemplate() {
-  static const WebPageTemplatePart parts[] = { F( R"html(<div class="block">
-      <h1>Restarting</h1>
-      <p>This takes a short while. Reload the page in a few moments.</p>
-    </div>)html" ) };
-  return { parts };
-}
-
-WebPageTemplate htmlSettingsPageTemplate() {
-  static const WebPageTemplatePart parts[] = { F( R"html(<div class="topbar">
-      <form action="/" method="post">
-        <input type="text" name="form" value="logout" hidden />
-        <button type="submit">Logout</button>
-      </form>
-      <form action="/" method="post" onsubmit="return confirm('Do you want to restart? Your configuration will be reloaded and changes will be permanent.')">
-        <input type="text" name="form" value="restart" hidden />
-        <button type="submit">Restart</button>
-      </form>
-    </div>
-    <div class="message">)html" ), { SettingsField::NumberOfFields, WebPageTemplateArgs::SettingsPageMessage }, F( R"html(</div>
-    <div class="block">
-      <h2>Wifi</h2>
-      <form action="/" method="post">
-        <input type="text" name="form" value="wifi" hidden />
-        <label for="ssid-field">SSID:</label>
-        <div><input id="ssid-field" type="text" name="ssid" required maxlength="32" value=")html" ), SettingsField::WifiSSID, F( R"html(" /></div>
-        <label for="wifi-password-field">Password:</label>
-        <div><input id="wifi-password-field" type="password" name="password" required maxlength="64" value=")html" ), SettingsField::WifiPassword, F( R"html(" /></div>
-        <label for="wifi-repeated-password-field">Repeat Password:</label>
-        <div><input id="wifi-repeated-password-field" type="password" name="repeated-password" required maxlength="64" value=""/></div>
-        <div class="buttons">
-          <button type="reset">Reset</button>
-          <button type="submit">Save</button>
-        </div>
-      </form>
-    </div>
-    <div class="block">
-      <h2>MQTT</h2>
-      <form action="/" method="post">
-        <input type="text" name="form" value="mqtt" hidden />
-        <label for="mqtt-address-field">Address:</label>
-        <div><input id="mqtt-address-field" type="text" name="address" required maxlength="20" value=")html" ), SettingsField::MqttBrokerAddress, F( R"html(" /></div>
-        <label for="mqtt-port-field">Port:</label>
-        <div><input id="mqtt-port-field" type="number" name="port" required min="0" max="65535" value=")html" ), SettingsField::MqttBrokerPort, F( R"html(" /></div>
-        <label for="mqtt-fingerprint-field">Certificate Fingerprint:</label>
-        <div><input id="mqtt-fingerprint-field" class="hex" type="text" name="fingerprint" required pattern="(\[insecure\])|[0-9a-fA-F]{40}" maxlength="44" value=")html" ), SettingsField::MqttCertificateFingerprint, F( R"html(" /></div>
-        <label for="mqtt-user-field">User:</label>
-        <div><input id="mqtt-user-field" type="text" name="user" required maxlength="20" value=")html" ), SettingsField::MqttBrokerUser, F( R"html(" /></div>
-        <label for="mqtt-password-field">Password:</label>
-        <div><input id="mqtt-password-field" type="password" name="password" required maxlength="20" value=")html" ), SettingsField::MqttBrokerPassword, F( R"html(" /></div>
-        <label for="mqtt-client-id-field">Client ID:</label>
-        <div><input id="mqtt-client-id-field" type="text" name="client-id" required maxlength="20" value=")html" ), SettingsField::MqttBrokerClientId, F( R"html(" /></div>
-        <label for="mqtt-path-field">Path:</label>
-        <div><input id="mqtt-path-field" type="text" name="path" required maxlength="100" value=")html" ), SettingsField::MqttBrokerPath, F( R"html(" /></div>
-        <label for="mqtt-raw-field">Send Raw:</label>
-        <div><input id="mqtt-raw-field" type="radio" name="mode" value="0" )html" ), { SettingsField::MqttMessageMode, MqttMessageMode::Raw }, F( R"html(/></div>
-        <label for="mqtt-topic-field">Send Topics:</label>
-        <div><input id="mqtt-topic-field" type="radio" name="mode" value="1" )html" ), { SettingsField::MqttMessageMode, MqttMessageMode::Topic }, F( R"html(/></div>
-        <label for="mqtt-json-field">Send JSON:</label>
-        <div><input id="mqtt-json-field" type="radio" name="mode" value="2" )html" ), { SettingsField::MqttMessageMode, MqttMessageMode::Json }, F( R"html(/></div>
-        <div class="buttons">
-          <button type="reset">Reset</button>
-          <button type="submit">Save</button>
-        </div>
-      </form>
-    </div>
-    <div class="block">
-      <h2>DSLM/COSEM</h2>
-      <form action="/" method="post">
-        <input type="text" name="form" value="dslmcosem" hidden />
-        <label for="dslmcosem-key-field">Decryption Key:</label>
-        <div><input id="dslmcosem-key-field" class="hex" type="text" name="key" required pattern="[0-9a-fA-F]{32}" maxlength="32" value=")html" ), SettingsField::DslmCosemDecryptionKey, F( R"html(" /></div>
-        <div class="buttons">
-          <button type="reset">Reset</button>
-          <button type="submit">Save</button>
-        </div>
-      </form>
-    </div>)html" ) };
-  return { parts };
-}
+#include "settings-page.html.inl.h"
 
 EEPROMSettings<decltype(EEPROM)> Settings{ EEPROM };
 NoStl::UniquePtr<MqttSender> mqttSender;
+FormDataEncryptor formDataEncryptor;
 LocalBuffer<16> dlmsDecryptionKey;
 LocalBuffer<45> mqttServerCertFingerprint;
 
@@ -3751,142 +4249,203 @@ LocalBuffer<45> mqttServerCertFingerprint;
 // a copy of the string it is provided. The lifetime has to be managed by the user (us).
 LocalBuffer<21> mqttServerDomain;
 
-using WebPageRendererType = WebPageRenderer<decltype(webServer), 256>;
 using EEPROMHandleType = EEPROMHandle<decltype(EEPROM)>;
 
-bool webRequestIsAuthenticated() {
-  return true;
-}
-
-void webRenderLoginPage() {
-  WebPageRendererType renderer{ webServer };
-  renderer.render( htmlBasePageTemplate(), []( WebPageRendererType& renderer, BufferPrinter& printer, const WebPageTemplatePart& part ) {
-    if( part == WebPageTemplatePart::TemplateHook ) {
-      assert( part.asArgument().first == 0 );
-      renderer.renderRecursive( htmlLoginPageTemplate() );
-      return;
-    }
-  } );
-}
-
-void webRenderRestartPage() {
-  WebPageRendererType renderer{ webServer };
-  renderer.render( htmlBasePageTemplate(), []( WebPageRendererType& renderer, BufferPrinter& printer, const WebPageTemplatePart& part ) {
-    if( part == WebPageTemplatePart::TemplateHook ) {
-      assert( part.asArgument().first == 0 );
-      renderer.renderRecursive( htmlRestartPageTemplate() );
-      return;
-    }
-  } );
-}
-
-void webRenderSettingsPage( EEPROMHandleType eepromHandle, const char* message = nullptr ) {
-  // Do not call Settings.begin as this would start the checksum check. But we
-  // only load the lower part (no der files) into memory right now, which would
-  // cause an out of bounds access, as the checksum is expected to be at the very
-  // end of the full block.
-
-  WebPageRendererType renderer{ webServer };
-  renderer.render( htmlBasePageTemplate(), [ & ]( WebPageRendererType& renderer, BufferPrinter& printer, const WebPageTemplatePart& part ) {
-    if( part == WebPageTemplatePart::TemplateHook ) {
-      assert( part.asArgument().first == 0 );
-      renderer.renderRecursive( htmlSettingsPageTemplate() );
-      return;
-    }
-
-    if( part.asArgument().first == SettingsField::NumberOfFields ) {
-      if( part.asArgument().second == WebPageTemplateArgs::SettingsPageMessage && message ) {
-        printer.print( message );
-      }
-      return;
-    }
-
-    SettingsField field{ part.asArgument().first };
-    auto fieldBuffer = Settings.getCStringBuffer( field );
-
-    if( field == SettingsField::MqttMessageMode ) {
-      if( fieldBuffer[0] == part.asArgument().second ) {
-        printer.print( "checked" );
-      }
-      return;
-    }
-
-    LocalBuffer<200> encodedField;
-    BufferReader fieldReader{ fieldBuffer };
-    encodedField.encodeHtml( fieldReader );
-    printer.print( encodedField.charBegin() );
-  } );
-}
-
 void webRenderRootPage() {
-  if( !webRequestIsAuthenticated() ) {
-    webRenderLoginPage();
+  auto& acceptedEncodings = webServer.header( "Accept-Encoding" );
+  if( acceptedEncodings.indexOf( "gzip" ) < 0 ) {
+    webServer.send( 406, "text/html", "<h2>Error 406: Browser does not support gzip encoding</h2>" );
     return;
   }
 
-  webRenderSettingsPage( EEPROMHandleType{ EEPROM, SettingsField::requiredStorage() } );
+  webServer.sendHeader( "Content-Encoding", "gzip" );
+  webServer.send_P( 200, "text/html", (const char*)compressedHtml, sizeof( compressedHtml ) );
 }
 
-void webLoginHandler() {
-  // Again, do not call Settings.begin() for reasons mentioned above
-  EEPROMHandleType eepromHandle{ EEPROM, SettingsField::requiredStorage() };
+void webSendEncryptedSettings() {
+  EEPROMHandleType eepromHandle{ EEPROM, SettingsField::requiredStorage() + 4 };
 
-  webRenderSettingsPage( NoStl::move( eepromHandle ), "Hello, welcome back." );
-}
+  LocalBuffer<300> dataBuffer;
+  auto jsonData = JsonFormData::fromSettings( dataBuffer, Settings );
+  auto encData = formDataEncryptor.encryptAndSign( jsonData );
 
-void webLogoutHandler() {
-  webRenderLoginPage();
+  LocalBuffer<200> printBuffer;
+  WebServerPrinter<decltype(webServer)> serverPrinter{ printBuffer, webServer };
+
+  if( !webServer.chunkedResponseModeStart( 200, "application/json" ) ) {
+    webServer.send( 505, "text/html", "<h2>Error 505: HTTP1.1 required</h2>" );
+    return;
+  }
+
+  encData.printJson( serverPrinter );
+
+  serverPrinter.sendContent();
+  webServer.chunkedResponseFinalize();
 }
 
 void webRestartHandler() {
-  if( !webRequestIsAuthenticated() ) {
-    webRenderLoginPage();
-    return;
-  }
 
-  webRenderRestartPage();
+  return;
+
   debugOut << "Restarting device!\r\n";
   delay( 2000 );
   ESP.restart();
 }
 
-void webSettingsHandlerImpl( const SettingsField::ValidationPair* pairs, u32 count, const char* msg, EEPROMHandleType eepromHandle ) {
-  if( !webRequestIsAuthenticated() ) {
-    webRenderLoginPage();
-    return;
-  }
+template<int N>
+ErrorOr<void> webUpdateSettings( ParsedJsonFormFields<10>& formFields, const SettingsField( &requiredFields )[N] ) {
+  TRY( formFields.validate( requiredFields ) );
+  formFields.persist( Settings );
 
-  auto validationError = SettingsField::validateStrings( pairs, count );
-  if( validationError.isError() ) {
-    debugOut << "Caught validation error in ::webSettingsHandler: " << validationError.error().message() << debugEndl;
-    webRenderSettingsPage( NoStl::move( eepromHandle ), validationError.error().message() );
-    return;
-  }
+#ifdef DEBUG_PRINTING
+  debugOut << "Persisted settings -> ";
+  formFields.print( debugOut );
+#endif
 
-  for( u32 i = 0; i != count; i++ ) {
-    Settings.set( pairs[i].field, Buffer::fromString( pairs[i].string ) );
-  }
   Settings.save();
 
-  webRenderSettingsPage( NoStl::move( eepromHandle ), msg );
+  return {};
 }
 
-template<int N>
-void webSettingsHandler( const SettingsField::ValidationPair( &pairs )[N], const char* msg, EEPROMHandleType eepromHandle ) {
-  webSettingsHandlerImpl( pairs, N, msg, NoStl::move( eepromHandle ) );
+ErrorOr<void> webUpdateWifiSettings( ParsedJsonFormFields<10>& formFields ) {
+  return webUpdateSettings( formFields, { SettingsField::WifiSSID, SettingsField::WifiPassword } );
 }
 
-void webWifiSettingsHandler() {
-  
+ErrorOr<void> webUpdateMqttSettings( ParsedJsonFormFields<10>& formFields ) {
+  return webUpdateSettings( formFields, {
+    SettingsField::MqttBrokerAddress,
+    SettingsField::MqttBrokerPort,
+    SettingsField::MqttCertificateFingerprint,
+    SettingsField::MqttBrokerUser,
+    SettingsField::MqttBrokerPassword,
+    SettingsField::MqttBrokerClientId,
+    SettingsField::MqttBrokerPath,
+    SettingsField::MqttMessageMode
+    } );
 }
 
-void webMqttSettingsHandler() {
-  
+ErrorOr<void> webUpdateCosemSettings( ParsedJsonFormFields<10>& formFields ) {
+  return webUpdateSettings( formFields, { SettingsField::DslmCosemDecryptionKey } );
 }
 
-void webDslmCosemSettingsHandler() {
- 
+ErrorOr<void> webDecryptForm() {
+  // Take a copy of the http body string and use it as a buffer. This works
+  // because all algorithms that are used on derived views of this buffer
+  // only create data with the same or less length: json string decoding,
+  // base64 decode & decryption
+
+  auto bodyData = webServer.arg( "plain" );
+  if( bodyData.length() > 500 ) {
+    return Error{ "Data too long" };
+  }
+
+  auto dataBuffer = Buffer::fromString( bodyData );
+  FlatJsonParser parser{ BufferReader{ dataBuffer } };
+
+  // Get the nonce, salt, tag and (encrypted) data fields from the JSON
+  enum class ItemName : u32 { Nonce, Salt, Tag, Data, NumberOfItems };
+  FlatJsonParser::ParsingItem parsingItems[(u32)ItemName::NumberOfItems];
+  parsingItems[(u32)ItemName::Nonce] = { "nonce" };
+  parsingItems[(u32)ItemName::Salt] = { "salt" };
+  parsingItems[(u32)ItemName::Tag] = { "tag" };
+  parsingItems[(u32)ItemName::Data] = { "data" };
+
+  auto maybeError = parser.parseItemValues( parsingItems );
+  if( maybeError.isError() ) {
+    debugOut << "::webDecryptForm: Could not decode json: " << maybeError.error().message() << debugEndl;
+    return Error{ "Invalid json" };
+  }
+
+  auto nonceBuffer = parsingItems[(u32)ItemName::Nonce].value.value();
+  auto saltBuffer = parsingItems[(u32)ItemName::Salt].value.value();
+  auto tagBuffer = parsingItems[(u32)ItemName::Tag].value.value();
+  auto cipherBuffer = parsingItems[(u32)ItemName::Data].value.value();
+
+  // Check lengths in base64 encoded format (include '\0')
+  if( nonceBuffer.length() != 17 || saltBuffer.length() != 25 || tagBuffer.length() != 25 ) {
+    debugOut << "::webDecryptForm: Invalid buffer lengths: " << nonceBuffer.length() << ", " << saltBuffer.length() << ", " << tagBuffer.length() << debugEndl;
+    return Error{ "Invalid encryption buffer sizes" };
+  }
+
+  // Cut off the '\0', which is not needed for the decryption code
+  nonceBuffer.shrinkLengthBy( 1 );
+  saltBuffer.shrinkLengthBy( 1 );
+  tagBuffer.shrinkLengthBy( 1 );
+  cipherBuffer.shrinkLengthBy( 1 );
+
+  // Decode the base64, decrypt the data and check if the nonce is valid
+  TRYGET( encData, EncryptedFormData::fromBase64( nonceBuffer, saltBuffer, tagBuffer, cipherBuffer ) );
+  TRYGET( jsonData, formDataEncryptor.decryptAndVerify( encData ) );
+
+  // Parse the JSON and convert the field names to setting field ids
+  TRYGET( formFields, jsonData.parseFields() );
+
+  if( formFields.name().isTerminatedString( "restart" ) ) {
+    debugOut << "Web: restart" << debugEndl;
+  } else if( formFields.name().isTerminatedString( "wifi" ) ) {
+    TRY(webUpdateWifiSettings(formFields));
+
+  } else if( formFields.name().isTerminatedString( "mqtt" ) ) {
+    TRY(webUpdateMqttSettings(formFields));
+
+  } else if( formFields.name().isTerminatedString( "dlsmcosem" ) ) {
+    TRY( webUpdateCosemSettings( formFields ) );
+
+  } else {
+    return Error{ "Unknown form name" };
+  }
+
+  // Register a new nonce and send it back as JSON
+  // Just recycle the string backed data buffer as print buffer
+  WebServerPrinter<decltype(webServer)> serverPrinter{ dataBuffer, webServer };
+
+  if( !webServer.chunkedResponseModeStart( 200, "application/json" ) ) {
+    webServer.send( 505, "text/html", "<h2>Error 505: HTTP1.1 required</h2>" );
+
+    // Raise an empty error, so that ::webUpdateSettings() wont try to send an error message
+    return Error{ nullptr };
+  }
+
+  serverPrinter << "{\"nextNonce\":\"";
+
+  auto& nonce = formDataEncryptor.makeNonce();
+  const_cast<EncryptedFormData::Nonce&>(nonce).asBuffer().printBase64( serverPrinter );
+
+  serverPrinter << '"' << '}';
+  serverPrinter.sendContent();
+  webServer.chunkedResponseFinalize();
+
+  return {};
 }
+
+void webUpdateSettings() {
+  EEPROMHandleType eepromHandle{ EEPROM, SettingsField::requiredStorage() + 4 };
+
+  auto& contentType = webServer.header( "Content-Type" );
+  if( !contentType.equalsIgnoreCase( "application/json" ) ) {
+    webServer.send( 415, "text/html", "<h2>Error 415: Expected JSON</h2>" );
+    return;
+  }
+
+  if( !webServer.hasArg( "plain" ) ) {
+    webServer.send( 400, "text/html", "<h2>Error 400: No data received</h2>" );
+    return;
+  }
+
+  auto maybeError = webDecryptForm();
+  if( maybeError.isError() && maybeError.error().message() ) {
+    if( !webServer.chunkedResponseModeStart( 422, "text/html" ) ) {
+      webServer.send( 505, "text/html", "<h2>Error 505: HTTP1.1 required</h2>" );
+      return;
+    }
+
+    webServer.sendContent( "<h2>Error 422: " );
+    webServer.sendContent( maybeError.error().message() );
+    webServer.sendContent( "</h2>" );
+    webServer.chunkedResponseFinalize();
+  }
+}
+
 
 void flushSerial() {
   while( Serial.available() ) {
@@ -4009,14 +4568,25 @@ void initMqtt() {
 void initWebServer() {
   assert( Settings.available() );
 
+  auto encryptionKey = Settings.getCStringBuffer( SettingsField::WebFormDataKey );
+  debugOut << "Server secret key is:" << encryptionKey.charBegin() << debugEndl;
+  formDataEncryptor.setHexEncryptionKey( encryptionKey );
+
+  webServer.collectHeaders( "Accept-Encoding", "Content-Type" );
+
   webServer.on( "/", HTTP_GET, []() {
     debugOut << "Root route\r\n";
     webRenderRootPage();
   } );
 
-  webServer.on( "/", HTTP_POST, []() {
-    
-    webServer.send( 204, "text/plain", "Unknown form type" );
+  webServer.on( "/api", HTTP_GET, []() {
+    debugOut << "API get\r\n";
+    webSendEncryptedSettings();
+  } );
+
+  webServer.on( "/api", HTTP_POST, []() {
+    debugOut << "API post\r\n";
+    webUpdateSettings();
   } );
 
   webServer.onNotFound( []() {
@@ -4024,7 +4594,7 @@ void initWebServer() {
     webServer.send( 404, "text/html", "<h2>Error 404: Page not found</h2>" );
   } );
 
-  debugOut << "(Re-)Starting webserver" << debugEndl;
+  debugOut << "Starting webserver" << debugEndl;
   webServer.begin();
 }
 
@@ -4108,7 +4678,8 @@ ErrorOr<void> waitForAndProcessPacket() {
   TRYGET( cosemData, CosemData::fromApplicationFrame( applicationFrame ) );
 
 #if DEBUG_PRINTING
-  cosemData.print( debugOut );
+  //cosemData.print( debugOut );
+  debugOut << "Decoded successfully\r\n";
 #endif
   TRY( mqttSender->connect() );
   mqttSender->publishRaw( serialReader.allDataRead() );
@@ -4140,10 +4711,11 @@ void setup() {
   pinMode( D0, OUTPUT );
   digitalWrite( D0, LOW );
 
+  Serial.print( '\n' );
   Serial.println( "Starting smart meter mqtt gateway v2.0" );
   Serial.println( "Initializing..." );
 
-  constexpr auto EEPROMBytesToLoad = 2700;
+  constexpr auto EEPROMBytesToLoad = 500;
   assert( EEPROMBytesToLoad >= SettingsField::requiredStorage() + 4 );
   EEPROMHandleType eepromHandle{ EEPROM, EEPROMBytesToLoad };
 
