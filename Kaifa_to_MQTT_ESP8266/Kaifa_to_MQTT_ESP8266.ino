@@ -4259,6 +4259,9 @@ void webRenderRootPage() {
   }
 
   webServer.sendHeader( "Content-Encoding", "gzip" );
+#if !DEBUG_PRINTING
+  webServer.sendHeader( "Cache-Control", "max-age=1800" ); // 30min in secs
+#endif
   webServer.send_P( 200, "text/html", (const char*)compressedHtml, sizeof( compressedHtml ) );
 }
 
@@ -4271,6 +4274,8 @@ void webSendEncryptedSettings() {
 
   LocalBuffer<200> printBuffer;
   WebServerPrinter<decltype(webServer)> serverPrinter{ printBuffer, webServer };
+
+  webServer.sendHeader( "Cache-Control", "no-store" );
 
   if( !webServer.chunkedResponseModeStart( 200, "application/json" ) ) {
     webServer.send( 505, "text/html", "<h2>Error 505: HTTP1.1 required</h2>" );
@@ -4297,7 +4302,7 @@ ErrorOr<void> webUpdateSettings( ParsedJsonFormFields<10>& formFields, const Set
   TRY( formFields.validate( requiredFields ) );
   formFields.persist( Settings );
 
-#ifdef DEBUG_PRINTING
+#if DEBUG_PRINTING
   debugOut << "Persisted settings -> ";
   formFields.print( debugOut );
 #endif
@@ -4398,6 +4403,8 @@ ErrorOr<void> webDecryptForm() {
   // Register a new nonce and send it back as JSON
   // Just recycle the string backed data buffer as print buffer
   WebServerPrinter<decltype(webServer)> serverPrinter{ dataBuffer, webServer };
+
+  webServer.sendHeader( "Cache-Control", "no-store" );
 
   if( !webServer.chunkedResponseModeStart( 200, "application/json" ) ) {
     webServer.send( 505, "text/html", "<h2>Error 505: HTTP1.1 required</h2>" );
