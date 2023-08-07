@@ -853,7 +853,7 @@ public:
     if( !strncmp( charBegin(), str, byteCount ) ) {
       // The buffer could be shorter than the string and strncmp would still
       // return equality as the buffer is not terminated by a '\0'
-      return ptr[byteCount-1] == '\0' || str[byteCount] == '\0';
+      return ptr[byteCount - 1] == '\0' || str[byteCount] == '\0';
     }
 
     return false;
@@ -2968,7 +2968,7 @@ public:
     while( reader.hasNext() && numUnresolvedItems ) {
       TRYGET( keyValuePair, parseNext() );
       numUnresolvedItems -= (setUnresolvedItem( items, numItems, keyValuePair ) ? 1 : 0);
-      
+
       TRYGET( isEnd, parseSeparatorOrEnd() );
       if( isEnd ) {
         break;
@@ -3355,7 +3355,7 @@ public:
   }
 
   template<typename T>
-  void persist(T& Settings) const {
+  void persist( T& Settings ) const {
     // TODO: Detemplatize
     for( u32 i = 0; i != numStoredFields; i++ ) {
       Settings.set( fields[i].data.field, fields[i].data.value );
@@ -4389,10 +4389,10 @@ ErrorOr<void> webDecryptForm() {
     webRestartHandler();
 
   } else if( formFields.name().isTerminatedString( "wifi" ) ) {
-    TRY(webUpdateWifiSettings(formFields));
+    TRY( webUpdateWifiSettings( formFields ) );
 
   } else if( formFields.name().isTerminatedString( "mqtt" ) ) {
-    TRY(webUpdateMqttSettings(formFields));
+    TRY( webUpdateMqttSettings( formFields ) );
 
   } else if( formFields.name().isTerminatedString( "dlsmcosem" ) ) {
     TRY( webUpdateCosemSettings( formFields ) );
