@@ -50,7 +50,7 @@
 #include "Crypto-0.4.0/src/Crypto.h"
 #include "Crypto-0.4.0/src/AES.h"
 #include "Crypto-0.4.0/src/GCM.h"
-#include "CRC-master/CRC32.h"
+#include "CRC-master/src/CRC32.h"
 #include "Chacha20Poly1305.h"
 
 #else
@@ -1880,11 +1880,8 @@ private:
 
   u32 calcChecksum( u32 storageSize ) {
     CRC32 checkSummer;
-    checkSummer.enableYield();
-    for( u32 i = 0; i != storageSize; i++ ) {
-      checkSummer.add( eeprom[i] );
-    }
-    return checkSummer.getCRC();
+    checkSummer.add( eeprom.getConstDataPtr(), storageSize, 256 );
+    return checkSummer.calc();
   }
 
   u32 readChecksum( u32 storageSize ) {
@@ -3865,10 +3862,8 @@ public:
 
     auto len = SettingsField::requiredStorage();
     CRC32 summer;
-    for( u32 i = 0; i < len; i++ ) {
-      summer.add( buffer.at( i ) );
-    }
-    auto checksum = goodChecksum ? summer.getCRC() : summer.getCRC() + 1; // Deliberatly set a bad checksum
+    summer.add( buffer.begin(), len );
+    auto checksum = goodChecksum ? summer.calc() : summer.calc() + 1; // Deliberatly set a bad checksum
     std::cout << "[!] EEPROM - Calculated CRC32: " << checksum << std::endl;
     buffer[len + 3] = (checksum >> 24) & 0xFF;
     buffer[len + 2] = (checksum >> 16) & 0xFF;
