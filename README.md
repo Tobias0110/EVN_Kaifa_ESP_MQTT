@@ -7,14 +7,14 @@ device hosts a webpage, where you can change your settings.
 ## 🤔 How does it work?
 The ESP8266 receives the MBus data from the smart meter via a UART interface on the
 front facing side of the device. A specially developed interface PCB powers the
-microcontroller board from the MBus idle voltage (no extra power supply needed).
+micro-controller board from the MBus idle voltage (no extra power supply needed).
 In addition, it contains a level shifter to convert from MBus voltage levels to
 3V3 UART compatible with the ESP8266. This is useful because many people don't
 have a power socket near their power meter.
 
 **Please consider buying the PCB from me to support our work. You can contact me via oe3tec(at)egimoto.com**
 
-The ESP8266 microcontroller syncs to the databursts of the smartmeter so no packets
+The ESP8266 micro-controller syncs to the smartmeter's bursts of data so no packets
 are lost. After receiving a package it is decrypted and the DSLM/COSEM data structure
 is parsed to extract the measurement fields. These fields are then sent to an MQTT
 broker in a preselected format. All relevant parameters can be configured via the
@@ -25,7 +25,7 @@ on the wifi network. The page is only accessible with a passcode that is set dur
 first setup. For more details on the webpage see below.
 
 <p align="center">
-  <img alt="Complete assambly of the custom PCB and the ESP8266 on top" src="/device_pictures/interface_with_ESP.jpg" width="500">
+  <img alt="Complete assembly of the custom PCB and the ESP8266 on top" src="/device_pictures/interface_with_ESP.jpg" width="500">
 </p>
 
 ## 🔧 Installation
@@ -33,7 +33,7 @@ first setup. For more details on the webpage see below.
 > Make sure the ESP is not connected to the interface board during programming or
 > configuration.
 
-The following steps are applicaple if you are using the Arduino IDE to build the
+The following steps are applicable if you are using the Arduino IDE to build the
 project yourself.
 
 1. Install the ESP-Module as a compilation target
@@ -74,7 +74,7 @@ clear your configuration by pressing 'c'.
 5. After start up the system switches the serial interface to MBus mode (2400 baud,
   even parity) and waits for data packets.
 
-To boot the ESP with your settings, reset the microcontroller. All the settings fields that
+To boot the ESP with your settings, reset the micro-controller. All the settings fields that
 can be configured are listed in the table below.
 
 | Field name | Default value | Description |
@@ -93,18 +93,18 @@ Webpage key | _automatically generated random value_ | Passkey to access the web
 DSLM/COSEM decryption key (meter key) || Decryption key to decipher the MBus data packets provided by the power company |
 
 > **Note**
-> When reconnecting the microcontroller PCB to the interface PCB make sure that the pins align correctly.
+> When reconnecting the micro-controller PCB to the interface PCB make sure that the pins align correctly.
 > Also check that the USB connector points in the direction of the M-Bus connector. Wrong positioning can result in a short and damage the microcontroler.
 
 ## 🌍 Configuration via webpage
-After initial setup with the sereial interface and having the ESP connected to
+After initial setup with the serial interface and having the ESP connected to
 the wifi, you can connect to the configuration webpage. To access it you need
 the passkey you set before.
 
-Due to memory limitation of the ESP8266 only a single TLS tunnnel can be used at
+Due to memory limitation of the ESP8266 only a single TLS tunnel can be used at
 once. As one is needed for the secure mqtt connection, there are no resources left
 for the webserver. Therefore an alternative security scheme is used and the
-page is hosten as plain HTTP. This means, that all your settings are always
+page is hosted as plain HTTP. This means, that all your settings are always
 transmitted encrypted and unreadable to others.
 
 For security reasons, especially sensitive fields are not automatically populated
@@ -113,7 +113,8 @@ they will only take effect after restarting the device.
 
 ## 📬 MQTT output formats
 > **Note**
-> 🔐 When using secure MQTT, make sure to put `tls_version tlsv1.2` in your MQTT servers config file, so it only accepts encrypted connections!
+> 🔐 When using secure MQTT, make sure to put `tls_version tlsv1.2` in your MQTT
+> servers config file, so it only accepts encrypted connections!
 
 The system can be configured to output the data received from the smartmeter in one
 of the following formats.
@@ -144,7 +145,7 @@ The json object has the following format.
 | ip          | string        || IP address received via DHCP |
 | rssi        | string        | Received Signal Strength Indicator | Strength of the wifi signal in `dBm` |
 
-The following JSON is an example package sent by the microcontroller.
+The following JSON is an example package sent by the micro-controller.
 ```json
 {
   "meternumber": "181220000009",
@@ -194,7 +195,7 @@ but we try to thoroughly test the software on real hardware.
 
 Thanks to Austrian laws power companies are required to describe how the P1 interface
 on their smartmeters works at least to some degree. The following resources were
-useful to understand how the comunication should be implemented:
+useful to understand how the communication should be implemented:
 
 * [M-Bus Specification](https://m-bus.com/assets/downloads/MBDOC48.PDF) (version "late 90s"):
 * Smart meter customer data port description (Multiple Austrian energy companies):
@@ -219,7 +220,7 @@ New in Version 2:
 
 ## 📋 Feature roadmap
 * [X] Output the clock of the smart meter in UTC
-* [X] Output the Zählernummer
+* [X] Output the smartmeter's unique id (Zählernummer)
 * [X] Implement the M-Bus library and parse DSLM/COSEM data
 * [X] MQTT SSL
 * [X] Web server for configuration
