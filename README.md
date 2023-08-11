@@ -36,21 +36,25 @@ first setup. For more details on the webpage see below.
 The following steps are applicable if you are using the Arduino IDE to build the
 project yourself.
 
-1. Install the ESP-Module as a compilation target
+1. Install [NodeJS](https://nodejs.org) on your machine, and navigate to the `www` directory.
+   There, install the required npm packages by running `npm i` in your console.
+2. Run the webpage build script. This should create a file named `settings-page.html.inl.h`
+   next to the Arduino sketch file.
+3. Install the ESP-Module as a compilation target.
     1. Add board config repository: File → Preferences →
        Paste URL into "Additional boards manager URLs": [http://arduino.esp8266.com/stable/package_esp8266com_index.json](http://arduino.esp8266.com/stable/package_esp8266com_index.json)
     2. Install the toolchain: Tools → Boards Manager → Install: esp8266
     3. Select the specific ESP module: Tools → Board → ESP2866 Boards → NodeMCU 1.0 (ESP-12E Modul)
-2. Open the Library Manager pane and install the following dependecies
+4. Open the Library Manager pane and install the following dependecies.
     * [Crypto](https://github.com/rweather/arduino-projects) by Rhys Weatherley
     * [PubSubClient](https://github.com/knolleary/pubsubclient) by Nicholas O'Leary
     * [CRC](https://github.com/RobTillaart/CRC) by Rob Tillaart
-3. Manully install the following dependencies by downloading their source code and
-   dropping it into your `Arduino/Libraries` directory
-   * [ESPTrueRandom8266](https://github.com/marvinroger/ESP8266TrueRandom) by Marvin Roger
-4. Click verify to check if the project buildes without errors
-5. Connect the ESP module and click upload like for any other Arduino-like micro controller
-6. Connect to the ESP2866 through the serial monitor and start configuration
+5. Manully install the following dependencies by downloading their source code and
+   dropping it into your `Arduino/Libraries` directory.
+    * [ESPTrueRandom8266](https://github.com/marvinroger/ESP8266TrueRandom) by Marvin Roger
+6. Click verify to check if the project builds without errors.
+7. Connect the ESP module and click upload like for any other Arduino-like micro controller.
+8. Connect to the ESP2866 through the serial monitor and start configuration.
 
 ## ⚙ Configuration via serial
 > **Note**
