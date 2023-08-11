@@ -9,6 +9,7 @@
 
 /**
 * Building the project using the Arduino IDE
+* - Build the static webpage first by running the script. (Install dependencies with npm first.)
 * - Install the ESP-Module as a compilation target
 *   - Add board config repository: File --> Preferences --> Paste URL into "Additional boards manager URLs": http://arduino.esp8266.com/stable/package_esp8266com_index.json
 *   - Install the toolchain: Tools --> Boards Manager --> Install: esp8266
