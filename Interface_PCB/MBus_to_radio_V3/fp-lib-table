@@ -1,0 +1,3 @@
+(fp_lib_table
+  (lib (name ESP)(type KiCad)(uri /mnt/a9ec076b-1377-4f94-9b3c-b0bca3a7203d/nextcloud/Projekte/Stromzaehler/EVN_Kaifa_ESP_MQTT/Interface_PCB/MBus_to_radio)(options "")(descr ""))
+)

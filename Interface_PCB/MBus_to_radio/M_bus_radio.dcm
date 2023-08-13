@@ -1,7 +1,36 @@
 EESchema-DOCLIB  Version 2.0
 #
-$CMP AP63205WU-7
+$CMP AP63203WU-7
+D 3.3V DC/DC Converter
 F https://www.diodes.com/assets/Datasheets/AP63200-AP63201-AP63203-AP63205.pdf
+$ENDCMP
+#
+$CMP AP63205WU-7
+D 5V DC/DC Converter
+F https://www.diodes.com/assets/Datasheets/AP63200-AP63201-AP63203-AP63205.pdf
+$ENDCMP
+#
+$CMP CH340N
+D USB to UART
+F https://www.diodes.com/assets/Datasheets/AP63200-AP63201-AP63203-AP63205.pdf
+$ENDCMP
+#
+$CMP CMLO1040H220MTT
+D 4A 22uH ±20% SMD Power Inductors ROHS
+$ENDCMP
+#
+$CMP LMR36510FA
+D DC/DC Converter
+F https://www.diodes.com/assets/Datasheets/AP63200-AP63201-AP63203-AP63205.pdf
+$ENDCMP
+#
+$CMP LV2862YDDCT
+D 3.3V DC/DC Converter
+F https://www.diodes.com/assets/Datasheets/AP63200-AP63201-AP63203-AP63205.pdf
+$ENDCMP
+#
+$CMP WJ350V-3.96-2P-14-00A
+D P=3.96mm Screw terminal ROHS
 $ENDCMP
 #
 #End Doc Library
