@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>ESP8266 Power Meter to MQTT Gateway</title>
+    <style>
+      {{> style.css}}
+    </style>
+    <script>
+      {{> main.js}}
+    </script>
+  </head>
+  <body>
+    <div class="topbar">
+      <button id="logout-button">Logout</button>
+      <form id="restart-form">
+        <input type="text" name="form" value="restart" hidden />
+        <button type="submit">Restart</button>
+      </form>
+    </div>
+    <div class="block">
+      <h2>Wifi</h2>
+      <form id="wifi-form">
+        <input type="text" name="form" value="wifi" hidden />
+        <label for="ssid-field">SSID:</label>
+        <div><input id="ssid-field" type="text" name="ssid" required maxlength="32" /></div>
+        <label for="wifi-password-field">Password:</label>
+        <div><input id="wifi-password-field" type="password" name="wifipwd" required maxlength="64" /></div>
+        <label for="wifi-repeated-password-field">Repeat Password:</label>
+        <div><input id="wifi-repeated-password-field" type="password" name="repeatedpwd" required maxlength="64" data-nosend /></div>
+        <div class="buttons">
+          <button type="reset">Reset</button>
+          <button type="submit">Save</button>
+        </div>
+      </form>
+    </div>
+    <div class="block">
+      <h2>MQTT</h2>
+      <form>
+        <input type="text" name="form" value="mqtt" hidden />
+        <label for="mqtt-address-field">Address:</label>
+        <div><input id="mqtt-address-field" type="text" name="mip" required maxlength="20" /></div>
+        <label for="mqtt-port-field">Port:</label>
+        <div><input id="mqtt-port-field" type="number" name="mport" required min="0" max="65535" /></div>
+        <label for="mqtt-fingerprint-field">Certificate Fingerprint:</label>
+        <div><input id="mqtt-fingerprint-field" class="hex" type="text" name="mfgpt" required pattern="(\[insecure\])|[0-9a-fA-F]{40}" maxlength="44" /></div>
+        <label for="mqtt-user-field">User:</label>
+        <div><input id="mqtt-user-field" type="text" name="muser" required maxlength="20" /></div>
+        <label for="mqtt-password-field">Password:</label>
+        <div><input id="mqtt-password-field" type="password" name="mpwd" required maxlength="20" /></div>
+        <label for="mqtt-client-id-field">Client ID:</label>
+        <div><input id="mqtt-client-id-field" type="text" name="mclient" required maxlength="20" /></div>
+        <label for="mqtt-path-field">Path:</label>
+        <div><input id="mqtt-path-field" type="text" name="mpath" required maxlength="100" /></div>
+        <label for="mqtt-raw-field">Send Raw:</label>
+        <div><input id="mqtt-raw-field" type="radio" name="mmode" value="0" /></div>
+        <label for="mqtt-topic-field">Send Topics:</label>
+        <div><input id="mqtt-topic-field" type="radio" name="mmode" value="1" /></div>
+        <label for="mqtt-json-field">Send JSON:</label>
+        <div><input id="mqtt-json-field" type="radio" name="mmode" value="2" /></div>
+        <div class="buttons">
+          <button type="reset">Reset</button>
+          <button type="submit">Save</button>
+        </div>
+      </form>
+    </div>
+    <div class="block">
+      <h2>DSLM/COSEM</h2>
+      <form>
+        <input type="text" name="form" value="dslmcosem" hidden />
+        <label for="dslmcosem-key-field">Decryption Key:</label>
+        <div><input id="dslmcosem-key-field" class="hex" type="text" name="dkey" required pattern="[0-9a-fA-F]{32}" maxlength="32" /></div>
+        <div class="buttons">
+          <button type="reset">Reset</button>
+          <button type="submit">Save</button>
+        </div>
+      </form>
+    </div>
+  </body>
+</html>

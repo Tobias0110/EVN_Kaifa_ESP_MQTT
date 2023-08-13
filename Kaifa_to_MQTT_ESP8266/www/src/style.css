@@ -1,0 +1,40 @@
+body {
+  font-family: sans-serif;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: #bfccdf;
+}
+.block, .topbar, .message {
+  background: #f1f1f1;
+  padding: 2rem;
+  margin: 2rem;
+  border-radius: 1rem;
+  box-shadow: 4px 4px 7px 1px #4e4e4e73;
+  min-width: 16vw;
+}
+.topbar {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-around;
+}
+.block form {
+  display: grid;
+  grid-template-columns: 1fr 4fr;
+  max-width: 20rem;
+  grid-gap: 1rem;
+}
+.block .buttons {
+  grid-column: 2;
+  display: flex;
+  flex-direction: row;
+  gap: 1rem;
+justify-content: center;
+}
+:not(.login) > input:invalid {
+  border-color: red;
+  color: red;
+}
+.hex {
+  font-family: monospace;
+}

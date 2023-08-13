@@ -1,26 +1,31 @@
 # EVN Kaifa to MQTT
 Allows you to read data from different kinds of smart power meters used by the
 EVN power company in Austria. Data is read from the MBus interface (called P1),
-packages are decrypted and then the values are sent to an MQTT endpoint.
+packages are decrypted and then the values are sent to an MQTT endpoint. The
+device hosts a webpage, where you can change your settings.
 
 ## 🤔 How does it work?
 The ESP8266 receives the MBus data from the smart meter via a UART interface on the
 front facing side of the device. A specially developed interface PCB powers the
-microcontroller board from the MBus idle voltage (no extra power supply needed).
+micro-controller board from the MBus idle voltage (no extra power supply needed).
 In addition, it contains a level shifter to convert from MBus voltage levels to
 3V3 UART compatible with the ESP8266. This is useful because many people don't
 have a power socket near their power meter.
 
-**Please consider buying the PCB from me to support my work. You can contact me via oe3tec(at)egimoto.com**
+**Please consider buying the PCB from me to support our work. You can contact me via oe3tec(at)egimoto.com**
 
-The ESP8266 microcontroller syncs to the databursts of the smartmeter so no packets
+The ESP8266 micro-controller syncs to the smartmeter's bursts of data so no packets
 are lost. After receiving a package it is decrypted and the DSLM/COSEM data structure
 is parsed to extract the measurement fields. These fields are then sent to an MQTT
 broker in a preselected format. All relevant parameters can be configured via the
 serial console at startup and are saved to the EEPROM.
 
+Alternatively, you can update your configuration on the webpage that the ESP hosts
+on the wifi network. The page is only accessible with a passcode that is set during
+first setup. For more details on the webpage see below.
+
 <p align="center">
-  <img alt="Complete assambly of the custom PCB and the ESP8266 on top" src="/device_pictures/interface_with_ESP.jpg" width="500">
+  <img alt="Complete assembly of the custom PCB and the ESP8266 on top" src="/device_pictures/interface_with_ESP.jpg" width="500">
 </p>
 
 ## 🔧 Installation
@@ -28,24 +33,39 @@ serial console at startup and are saved to the EEPROM.
 > Make sure the ESP is not connected to the interface board during programming or
 > configuration.
 
-The following steps are applicaple if you are using the Arduino IDE to build the
+The following steps are applicable if you are using the Arduino IDE to build the
 project yourself.
 
-1. Install the ESP-Module as a compilation target
-    1. Add board config repository: File --> Preferences --> Paste URL into "Additional boards manager URLs": [http://arduino.esp8266.com/stable/package_esp8266com_index.json](http://arduino.esp8266.com/stable/package_esp8266com_index.json)
-    2. Install the toolchain: Tools --> Boards Manager --> Install: esp8266
-    3. Select the specific ESP module: Tools --> Board --> ESP2866 Boards --> NodeMCU 1.0 (ESP-12E Modul)
-2. Open the Library Manager pane and install the following dependecies
+1. Install [NodeJS](https://nodejs.org) on your machine, and navigate to the `www` directory.
+   There, install the required npm packages by running `npm i` in your console.
+2. Run the webpage build script. This should create a file named `settings-page.html.inl.h`
+   next to the Arduino sketch file.
+3. Install the ESP-Module as a compilation target.
+    1. Add board config repository: File → Preferences →
+       Paste URL into "Additional boards manager URLs": [http://arduino.esp8266.com/stable/package_esp8266com_index.json](http://arduino.esp8266.com/stable/package_esp8266com_index.json)
+    2. Install the toolchain: Tools → Boards Manager → Install: esp8266
+    3. Select the specific ESP module: Tools → Board → ESP2866 Boards → NodeMCU 1.0 (ESP-12E Modul)
+4. Open the Library Manager pane and install the following dependecies.
     * [Crypto](https://github.com/rweather/arduino-projects) by Rhys Weatherley
     * [PubSubClient](https://github.com/knolleary/pubsubclient) by Nicholas O'Leary
-3. Click verify to check if the project buildes without errors
-4. Connect the ESP module and click upload like for any other Arduino-like micro controller
-5. Connect to the ESP2866 through the serial monitor and start configuration
+    * [CRC](https://github.com/RobTillaart/CRC) by Rob Tillaart
+5. Manully install the following dependencies by downloading their source code and
+   dropping it into your `Arduino/Libraries` directory.
+    * [ESPTrueRandom8266](https://github.com/marvinroger/ESP8266TrueRandom) by Marvin Roger
+6. Click verify to check if the project builds without errors.
+7. Connect the ESP module and click upload like for any other Arduino-like micro controller.
+8. Connect to the ESP2866 through the serial monitor and start configuration.
 
-## ⚙ Configuration
+## ⚙ Configuration via serial
 > **Note**
 > Make sure the ESP is not connected to the interface board during programming or
 > configuration.
+
+First configuration of the device is done via the serial terminal and is guided
+by an interactive setup wizard. On first startup the checksum check will fail and
+you will be required to enter settings. Later, you can enter the setup wizard
+again during the first 10 seconds after starting by pressing 's'. You can also
+clear your configuration by pressing 'c'.
 
 1. Connect the ESP board via USB to your computer and open a serial terminal.
    Serial settings: 115200 Baud, NO Parity
@@ -58,7 +78,8 @@ project yourself.
 5. After start up the system switches the serial interface to MBus mode (2400 baud,
   even parity) and waits for data packets.
 
-To boot the ESP with your settings, reset the microcontroller. The following settings fields can be configured.
+To boot the ESP with your settings, reset the micro-controller. All the settings fields that
+can be configured are listed in the table below.
 
 | Field name | Default value | Description |
 | :--- | :--- | :--- |
@@ -72,15 +93,32 @@ MQTT broker password || Password to authenticate at the MQTT broker server |
 MQTT broker client id || Client id to register as at the MQTT broker server |
 MQTT broker path || Base path prepended to MQTT topics |
 MQTT message mode | 2 | Selects the format for sending the data fields to the MQTT broker server (0 - raw, 1 - topics, 2 - json) |
+Webpage key | _automatically generated random value_ | Passkey to access the webpage |
 DSLM/COSEM decryption key (meter key) || Decryption key to decipher the MBus data packets provided by the power company |
 
 > **Note**
-> When reconnecting the microcontroller PCB to the interface PCB make sure that the pins align correctly.
-> Also make sure the USB connector points in the direction of the M-Bus connector. Wrong positioning can result in shorts and damage the microcontroler.
+> When reconnecting the micro-controller PCB to the interface PCB make sure that the pins align correctly.
+> Also check that the USB connector points in the direction of the M-Bus connector. Wrong positioning can result in a short and damage the microcontroler.
+
+## 🌍 Configuration via webpage
+After initial setup with the serial interface and having the ESP connected to
+the wifi, you can connect to the configuration webpage. To access it you need
+the passkey you set before.
+
+Due to memory limitation of the ESP8266 only a single TLS tunnel can be used at
+once. As one is needed for the secure mqtt connection, there are no resources left
+for the webserver. Therefore an alternative security scheme is used and the
+page is hosted as plain HTTP. This means, that all your settings are always
+transmitted encrypted and unreadable to others.
+
+For security reasons, especially sensitive fields are not automatically populated
+in their respective form fields. When you edited any settings and saved your changes
+they will only take effect after restarting the device.
 
 ## 📬 MQTT output formats
 > **Note**
-> 🔐 When using secure MQTT, make sure to put `tls_version tlsv1.2` in your MQTT servers config file, so it only accepts encrypted connections!
+> 🔐 When using secure MQTT, make sure to put `tls_version tlsv1.2` in your MQTT
+> servers config file, so it only accepts encrypted connections!
 
 The system can be configured to output the data received from the smartmeter in one
 of the following formats.
@@ -111,7 +149,7 @@ The json object has the following format.
 | ip          | string        || IP address received via DHCP |
 | rssi        | string        | Received Signal Strength Indicator | Strength of the wifi signal in `dBm` |
 
-The following JSON is an example package sent by the microcontroller.
+The following JSON is an example package sent by the micro-controller.
 ```json
 {
   "meternumber": "181220000009",
@@ -154,14 +192,14 @@ For a description of the fields checkout the section above.
 
 ## ☔ Standard compliance
 The parsing of MBus packets, and the deserialization of the DSLM/COSEM data is
-based on reverse engineering work done by @Tobias0110 and @PreyMa as the documents
-defining the standard are not publicly accessible. So there is no guarantee that
-anything behaves as expected, but we try to thoroughly test the software on real
-hardware.
+based on reverse engineering work done by [@Tobias0110](https://www.github.com/Tobias0110)
+and [@PreyMa](https://www.github.com/PreyMa) as the documents defining the standard are not
+publicly accessible. So there is no guarantee that anything behaves as expected,
+but we try to thoroughly test the software on real hardware.
 
 Thanks to Austrian laws power companies are required to describe how the P1 interface
 on their smartmeters works at least to some degree. The following resources were
-useful to understand how the comunication should be implemented:
+useful to understand how the communication should be implemented:
 
 * [M-Bus Specification](https://m-bus.com/assets/downloads/MBDOC48.PDF) (version "late 90s"):
 * Smart meter customer data port description (Multiple Austrian energy companies):
@@ -186,11 +224,11 @@ New in Version 2:
 
 ## 📋 Feature roadmap
 * [X] Output the clock of the smart meter in UTC
-* [X] Output the Zählernummer
+* [X] Output the smartmeter's unique id (Zählernummer)
 * [X] Implement the M-Bus library and parse DSLM/COSEM data
 * [X] MQTT SSL
+* [X] Web server for configuration
 * [ ] Expand the software to support all M-Bus smart meters in Austria
-* [ ] Web server for configuration
 * [ ] Support for the Improv Serial standard for WiFi configuration
 
 ## 🤝 Support the project
