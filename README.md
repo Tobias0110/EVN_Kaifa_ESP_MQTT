@@ -1,6 +1,6 @@
 # EVN Kaifa to MQTT
 Allows you to read data from different kinds of smart power meters used by the
-EVN power company in Austria. Data is read from the MBus interface (called P1),
+EVN power company in Austria. Data is read from the MBus interface (called Kundenschnittstelle P1),
 packages are decrypted and then the values are sent to an MQTT endpoint. The
 device hosts a webpage, where you can change your settings.
 
@@ -11,8 +11,6 @@ micro-controller board from the MBus idle voltage (no extra power supply needed)
 In addition, it contains a level shifter to convert from MBus voltage levels to
 3V3 UART compatible with the ESP8266. This is useful because many people don't
 have a power socket near their power meter.
-
-**Please consider buying the PCB from me to support our work. You can contact me via oe3tec(at)egimoto.com**
 
 The ESP8266 micro-controller syncs to the smartmeter's bursts of data so no packets
 are lost. After receiving a package it is decrypted and the DSLM/COSEM data structure
